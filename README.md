@@ -1,4 +1,4 @@
-# WaveTrailer 🌊
+# WaveTracer 🌊
 
 국내 서핑 포인트의 날짜별 파도 예보를 한 페이지에서 보여주는 서비스.
 Cloudflare Workers 정적 에셋으로 배포한다.
@@ -11,7 +11,7 @@ npx wrangler login     # 최초 1회, 브라우저에서 Cloudflare 계정 인�
 npm run deploy
 ```
 
-배포되면 `https://wavetrailer.<계정서브도메인>.workers.dev` 로 열린다.
+배포되면 `https://wavetracer.<계정서브도메인>.workers.dev` 로 열린다.
 이름을 바꾸려면 `wrangler.jsonc` 의 `name` 을 수정한다.
 
 ## 로컬 개발
@@ -24,7 +24,7 @@ npm run dev            # http://127.0.0.1:8787
 
 ## 커스텀 도메인
 
-Cloudflare 대시보드 → Workers & Pages → `wavetrailer` → Settings → Domains & Routes
+Cloudflare 대시보드 → Workers & Pages → `wavetracer` → Settings → Domains & Routes
 에서 이미 Cloudflare 네임서버를 쓰는 도메인을 연결하면 된다.
 
 ## 구조

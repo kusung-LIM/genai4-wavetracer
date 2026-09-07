@@ -1,0 +1,11 @@
+# 로컬 개발용 시크릿 템플릿.
+# 이 파일을 .dev.vars 로 복사하고 실제 값을 채운다. .dev.vars 는 .gitignore 에 있어 커밋되지 않는다.
+#
+#   cp .dev.vars.example .dev.vars
+#
+# 운영(배포) 환경에는 이 파일이 아니라 아래 명령으로 넣는다:
+#   npx wrangler secret put KMA_SERVICE_KEY
+
+# 공공데이터포털 "기상청_기상특보 조회서비스" 활용신청 후 발급되는 인증키.
+# https://www.data.go.kr/data/15000415/openapi.do
+KMA_SERVICE_KEY=

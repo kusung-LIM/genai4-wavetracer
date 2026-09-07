@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "wavetrailer",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["node_modules/wrangler/bin/wrangler.js", "dev", "--port", "8787"],
+      "port": 8787
+    }
+  ]
+}

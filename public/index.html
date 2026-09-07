@@ -1,0 +1,777 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>WaveTrailer — 국내 서핑 파도 예보</title>
+<meta name="description" content="양양·강릉·제주·부산 등 국내 서핑 포인트의 날짜별 파고·주기·파향·바람 예보를 한 페이지에서 확인하세요.">
+<meta name="theme-color" content="#06121d">
+<meta property="og:title" content="WaveTrailer — 국내 서핑 파도 예보">
+<meta property="og:description" content="원하는 날짜의 파고·주기·바람을 시간대별로. 국내 서핑 포인트 13곳.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8C%8A%3C/text%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#06121d; --bg2:#0a1c2b;
+  --surface:rgba(255,255,255,.045);
+  --surface-2:rgba(255,255,255,.075);
+  --line:rgba(255,255,255,.1);
+  --line-strong:rgba(255,255,255,.18);
+  --text:#e8f2f8; --muted:#8fa8ba; --dim:#63798a;
+  --accent:#38bdf8; --accent-2:#22d3ee;
+  --r-exc:#34d399; --r-good:#a3e635; --r-fair:#fbbf24; --r-poor:#fb923c; --r-flat:#64748b;
+  --radius:16px;
+  --font:-apple-system,BlinkMacSystemFont,"Segoe UI","Pretendard","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  --mono:ui-monospace,"SF Mono","Cascadia Mono","Consolas",monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  font-family:var(--font); background:var(--bg); color:var(--text);
+  -webkit-font-smoothing:antialiased; line-height:1.5;
+  min-height:100vh;
+}
+/* 고정 배경은 별도 레이어로. body 에 background-attachment:fixed 를 주면
+   스크롤마다 전면 리페인트가 일어나 iOS 에서 버벅이고 합성이 깨진다. */
+body::before{
+  content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
+  background:
+    radial-gradient(1100px 620px at 78% -12%, rgba(56,189,248,.16), transparent 62%),
+    radial-gradient(900px 520px at 8% 0%, rgba(34,211,238,.09), transparent 60%);
+}
+.wrap{max-width:1080px;margin:0 auto;padding:22px 18px 60px}
+
+/* ---------- header ---------- */
+header{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:22px}
+.logo{font-size:23px;font-weight:750;letter-spacing:-.02em;display:flex;align-items:center;gap:9px}
+.logo .mk{
+  font-size:20px;filter:drop-shadow(0 2px 6px rgba(56,189,248,.55));
+  animation:bob 3.4s ease-in-out infinite;
+}
+@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+.tag{font-size:12.5px;color:var(--muted)}
+
+/* ---------- controls ---------- */
+.controls{display:grid;gap:12px;margin-bottom:18px}
+.ctl-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+label.fld{
+  display:flex;align-items:center;gap:9px;background:var(--surface);
+  border:1px solid var(--line);border-radius:12px;padding:9px 13px;
+  transition:border-color .18s, background .18s;
+}
+label.fld:focus-within{border-color:rgba(56,189,248,.6);background:var(--surface-2)}
+label.fld > span{font-size:11px;font-weight:650;color:var(--dim);letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
+select,input[type=date]{
+  background:transparent;border:0;color:var(--text);font:inherit;font-size:14.5px;
+  font-weight:550;outline:none;cursor:pointer;max-width:230px;
+}
+select option,select optgroup{background:#0d2133;color:var(--text)}
+input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.75) sepia(1) saturate(3) hue-rotate(165deg);cursor:pointer}
+
+.days{display:flex;gap:7px;overflow-x:auto;padding-bottom:4px;scrollbar-width:thin;-webkit-overflow-scrolling:touch}
+.days::-webkit-scrollbar{height:5px}
+.days::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:3px}
+.day{
+  flex:0 0 auto;min-width:64px;padding:8px 11px;border-radius:12px;cursor:pointer;
+  background:var(--surface);border:1px solid var(--line);text-align:center;
+  transition:.16s;font-family:inherit;color:inherit;
+}
+.day:hover{background:var(--surface-2);border-color:var(--line-strong)}
+.day[aria-pressed=true]{background:rgba(56,189,248,.16);border-color:var(--accent);box-shadow:0 0 0 1px rgba(56,189,248,.3)}
+.day .dow{font-size:10.5px;color:var(--muted);font-weight:650;letter-spacing:.04em;display:block}
+.day .dnum{font-size:16px;font-weight:700;margin-top:1px;letter-spacing:-.01em;display:block}
+.day[aria-pressed=true] .dow{color:var(--accent)}
+.day.sat .dow{color:#7fb6ff} .day.sun .dow{color:#ff9aa8}
+.day .pill{display:block;height:3px;border-radius:2px;margin-top:5px;background:var(--line-strong)}
+
+/* ---------- hero ---------- */
+.hero{
+  background:linear-gradient(150deg, rgba(255,255,255,.075), rgba(255,255,255,.028));
+  border:1px solid var(--line);border-radius:var(--radius);padding:20px 22px;margin-bottom:14px;
+  display:grid;gap:18px;grid-template-columns:minmax(0,1fr) auto;align-items:center;
+}
+.hero-l{min-width:0}
+.spot-name{font-size:21px;font-weight:730;letter-spacing:-.02em;display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.spot-region{font-size:11.5px;font-weight:600;color:var(--muted);background:var(--surface-2);border:1px solid var(--line);padding:2.5px 8px;border-radius:999px}
+.hero-date{font-size:13px;color:var(--muted);margin-top:3px}
+.metrics{display:flex;gap:22px;flex-wrap:wrap;margin-top:15px}
+.m{min-width:0}
+.m .k{font-size:10.5px;color:var(--dim);font-weight:650;letter-spacing:.06em;text-transform:uppercase}
+.m .v{font-size:19px;font-weight:700;margin-top:2px;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.m .v small{font-size:12px;font-weight:600;color:var(--muted);margin-left:1px}
+.m .s{font-size:11.5px;color:var(--muted);margin-top:1px}
+
+.score{text-align:center;padding:4px 6px}
+.score .ring{position:relative;width:104px;height:104px;margin:0 auto}
+.score .ring .lbl{
+  position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;
+}
+.score .ring .num{font-size:27px;font-weight:760;letter-spacing:-.03em;font-variant-numeric:tabular-nums;line-height:1}
+.score .ring .of{font-size:10px;color:var(--dim);font-weight:600;margin-top:2px}
+.score .grade{font-size:14px;font-weight:720;margin-top:8px;letter-spacing:-.01em}
+.score .best{font-size:11.5px;color:var(--muted);margin-top:2px;white-space:nowrap}
+
+/* ---------- card ---------- */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:18px 20px;margin-bottom:14px}
+.card h2{margin:0 0 3px;font-size:14px;font-weight:700;letter-spacing:-.01em}
+.card .sub{font-size:11.5px;color:var(--dim);margin-bottom:14px}
+
+.chart-box{position:relative;width:100%}
+svg.chart{display:block;width:100%;height:auto;overflow:visible}
+.tip{
+  position:absolute;pointer-events:none;background:#0d2436;border:1px solid var(--line-strong);
+  border-radius:10px;padding:8px 11px;font-size:12px;line-height:1.65;white-space:nowrap;
+  box-shadow:0 10px 26px rgba(0,0,0,.5);opacity:0;transition:opacity .12s;z-index:5;top:0;left:0;
+}
+.tip.on{opacity:1}
+.tip b{font-size:12.5px}
+.tip .r{color:var(--muted)}
+
+/* ---------- table ---------- */
+.tscroll{overflow-x:auto;margin:0 -20px;padding:0 20px;scrollbar-width:thin}
+.tscroll::-webkit-scrollbar{height:6px}
+.tscroll::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:3px}
+table{width:100%;border-collapse:collapse;font-size:13.5px;min-width:640px}
+th{
+  text-align:left;font-size:10.5px;font-weight:650;color:var(--dim);letter-spacing:.06em;text-transform:uppercase;
+  padding:0 10px 9px;border-bottom:1px solid var(--line);white-space:nowrap;
+}
+th.num,td.num{text-align:right}
+td{padding:9px 10px;border-bottom:1px solid rgba(255,255,255,.05);font-variant-numeric:tabular-nums;white-space:nowrap}
+tbody tr{transition:background .12s}
+tbody tr:hover,tbody tr.hl{background:rgba(56,189,248,.08)}
+tbody tr.now{background:rgba(56,189,248,.13)}
+tbody tr.now td:first-child::after{content:"지금";font-size:9.5px;font-weight:700;color:var(--accent);margin-left:6px;letter-spacing:.04em}
+td.time{font-weight:650;font-family:var(--mono);font-size:13px}
+.wv{font-weight:700;font-size:14.5px}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:7px;vertical-align:1px}
+.arw{width:15px;height:15px;vertical-align:-3px;opacity:.85}
+.badge{font-size:10.5px;font-weight:670;padding:2px 7px;border-radius:999px;letter-spacing:.02em}
+.b-off{background:rgba(52,211,153,.17);color:#5eead4}
+.b-on{background:rgba(251,146,60,.17);color:#fdba74}
+.b-side{background:rgba(148,163,184,.16);color:#cbd5e1}
+.muted{color:var(--muted)}
+.dimc{color:var(--dim)}
+.unit{color:var(--muted);font-size:11.5px}
+
+/* ---------- states ---------- */
+.state{padding:44px 20px;text-align:center;color:var(--muted);font-size:13.5px}
+.spin{
+  width:26px;height:26px;border:2.5px solid var(--line-strong);border-top-color:var(--accent);
+  border-radius:50%;animation:sp .75s linear infinite;margin:0 auto 13px;
+}
+@keyframes sp{to{transform:rotate(360deg)}}
+.err{color:#fca5a5}
+.retry{
+  margin-top:14px;background:var(--surface-2);border:1px solid var(--line-strong);color:var(--text);
+  font:inherit;font-size:13px;font-weight:600;padding:8px 17px;border-radius:10px;cursor:pointer;transition:.15s;
+}
+.retry:hover{background:rgba(56,189,248,.16);border-color:var(--accent)}
+
+/* ---------- legend / footer ---------- */
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--muted);margin-top:14px;padding-top:13px;border-top:1px solid var(--line)}
+.legend span{display:flex;align-items:center;gap:5px}
+footer{margin-top:26px;font-size:11.5px;color:var(--dim);line-height:1.85;text-align:center}
+footer a{color:var(--muted);text-decoration:none;border-bottom:1px solid var(--line-strong)}
+footer a:hover{color:var(--accent)}
+
+@media (max-width:720px){
+  .wrap{padding:16px 13px 48px}
+  .hero{grid-template-columns:1fr;gap:14px;padding:17px}
+  .score{display:flex;align-items:center;gap:16px;text-align:left;justify-content:flex-start;
+    border-top:1px solid var(--line);padding-top:15px}
+  .score .ring{margin:0;flex:0 0 auto}
+  .score .grade{margin-top:0}
+  .metrics{gap:16px}
+  .m .v{font-size:17px}
+  select{max-width:170px}
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation-duration:.001ms !important;transition-duration:.001ms !important}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="logo"><span class="mk">🌊</span>WaveTrailer</div>
+    <div class="tag">국내 서핑 포인트 파도 예보 · 최대 7일</div>
+  </header>
+
+  <div class="controls">
+    <div class="ctl-row">
+      <label class="fld">
+        <span>포인트</span>
+        <select id="spot" aria-label="서핑 포인트 선택"></select>
+      </label>
+      <label class="fld">
+        <span>날짜</span>
+        <input type="date" id="date" aria-label="예보 날짜 선택">
+      </label>
+    </div>
+    <div class="days" id="days" role="group" aria-label="날짜 빠른 선택"></div>
+  </div>
+
+  <div id="app"></div>
+
+  <footer>
+    데이터 · <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a> Marine &amp; Weather API<br>
+    예보는 참고용입니다. 입수 전 반드시 현장 상황과 기상특보를 확인하세요.
+  </footer>
+</div>
+
+<script>
+"use strict";
+
+/* ============================ 데이터: 서핑 포인트 ============================
+   lat/lon : 해변 실제 위치 (바람·기온 조회용)
+   sea     : 파랑 모델 격자에 걸리는 앞바다 좌표 (해상 데이터 조회용)
+   facing  : 해변이 바라보는 방위(도). 이 방향에서 너울이 들어온다.
+============================================================================ */
+const SPOTS = [
+  { id:"sampo",    name:"삼포 해변",   region:"강원 고성",   lat:38.2650, lon:128.5620, sea:[38.2650,128.5950], facing:80  },
+  { id:"hajodae",  name:"하조대 해변", region:"강원 양양",   lat:38.0480, lon:128.6960, sea:[38.0480,128.7300], facing:85  },
+  { id:"jukdo",    name:"죽도 해변",   region:"강원 양양",   lat:38.0158, lon:128.7186, sea:[38.0158,128.7500], facing:85  },
+  { id:"ingu",     name:"인구 해변",   region:"강원 양양",   lat:37.9930, lon:128.7290, sea:[37.9930,128.7600], facing:90  },
+  { id:"gyeongpo", name:"경포 해변",   region:"강원 강릉",   lat:37.8010, lon:128.9080, sea:[37.8010,128.9400], facing:90  },
+  { id:"geumjin",  name:"금진 해변",   region:"강원 강릉",   lat:37.6360, lon:129.0460, sea:[37.6360,129.0750], facing:95  },
+  { id:"yonghan",  name:"용한리 해변", region:"경북 포항",   lat:36.1170, lon:129.4090, sea:[36.1170,129.4400], facing:95  },
+  { id:"songjeong",name:"송정 해변",   region:"부산 해운대", lat:35.1786, lon:129.1997, sea:[35.1640,129.2130], facing:140 },
+  { id:"dadaepo",  name:"다대포 해변", region:"부산 사하",   lat:35.0430, lon:128.9670, sea:[35.0250,128.9670], facing:190 },
+  { id:"jungmun",  name:"중문 색달",   region:"제주 서귀포", lat:33.2447, lon:126.4106, sea:[33.2250,126.4106], facing:180 },
+  { id:"iho",      name:"이호테우",    region:"제주 제주시", lat:33.4990, lon:126.4530, sea:[33.5200,126.4530], facing:350 },
+  { id:"woljeong", name:"월정리 해변", region:"제주 구좌",   lat:33.5560, lon:126.7960, sea:[33.5750,126.7960], facing:5   },
+  { id:"malli",    name:"만리포 해변", region:"충남 태안",   lat:36.7889, lon:126.1379, sea:[36.7889,126.1050], facing:270 }
+];
+
+/* ============================ 유틸 ============================ */
+const $ = (s, r) => (r || document).querySelector(s);
+const pad = n => String(n).padStart(2, "0");
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const isNum = v => typeof v === "number" && Number.isFinite(v);
+
+const DOW  = ["일","월","화","수","목","금","토"];
+const DIRS = ["북","북북동","북동","동북동","동","동남동","남동","남남동",
+              "남","남남서","남서","서남서","서","서북서","북서","북북서"];
+const dirName = d => DIRS[Math.round((((d % 360) + 360) % 360) / 22.5) % 16];
+
+const ymd = d => d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+
+/** 한국 시간(KST) 기준 '지금'을 로컬 Date 필드에 담아 반환 */
+function nowKST(){
+  const p = {};
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone:"Asia/Seoul", year:"numeric", month:"2-digit", day:"2-digit",
+    hour:"2-digit", minute:"2-digit", hour12:false
+  }).formatToParts(new Date()).forEach(x => { p[x.type] = x.value; });
+  const hh = +p.hour === 24 ? 0 : +p.hour;
+  return new Date(+p.year, +p.month - 1, +p.day, hh, +p.minute);
+}
+
+/** 구간 선형 보간 점수 */
+function curve(v, pts){
+  if (!isNum(v)) return 0;
+  if (v <= pts[0][0]) return pts[0][1];
+  for (let i = 1; i < pts.length; i++){
+    const x0 = pts[i-1][0], y0 = pts[i-1][1], x1 = pts[i][0], y1 = pts[i][1];
+    if (v <= x1) return y0 + (y1 - y0) * (v - x0) / (x1 - x0);
+  }
+  return pts[pts.length - 1][1];
+}
+
+/* ============================ 컨디션 점수 ============================ */
+const SIZE_C   = [[0,0],[0.3,12],[0.6,48],[0.9,78],[1.3,96],[2.0,100],[2.8,82],[3.8,48],[5.0,18],[7,0]];
+const PERIOD_C = [[3,8],[5,32],[7,60],[9,82],[11,95],[13,100],[18,100]];
+const WIND_C   = [[0,100],[2,97],[4,84],[6,64],[8,44],[11,22],[15,6],[22,0]];
+
+/**
+ * 오프쇼어 정도: +1 완전 오프쇼어(육지→바다), -1 완전 온쇼어.
+ * windDir 은 '바람이 불어오는 방위'(기상 관례) → 오프쇼어는 facing+180 에서 분다.
+ */
+function offshoreness(windDir, facing){
+  if (!isNum(windDir)) return 0;
+  return Math.cos((windDir - (facing + 180)) * Math.PI / 180);
+}
+
+function scoreHour(h){
+  const hgt = (isNum(h.swellH) && h.swellH > 0.05) ? h.swellH : h.waveH;
+  const per = (isNum(h.swellP) && h.swellP > 0)    ? h.swellP : h.waveP;
+  if (!isNum(hgt)) return null;
+
+  const sz  = curve(hgt, SIZE_C);
+  const pd  = curve(per, PERIOD_C);
+  const off = h.off;
+  const spd = isNum(h.windSpd) ? h.windSpd : 0;
+  // 바람 = 세기 기본점 + 오프쇼어 보정(바람이 셀수록 방향의 영향이 커짐)
+  const wd  = clamp(curve(spd, WIND_C) + off * Math.min(spd, 11) * 3.4, 0, 100);
+
+  return Math.round(sz * 0.42 + pd * 0.24 + wd * 0.34);
+}
+
+const GRADES = [
+  [78, "최상",   "var(--r-exc)"],
+  [62, "좋음",   "var(--r-good)"],
+  [45, "보통",   "var(--r-fair)"],
+  [27, "아쉬움", "var(--r-poor)"],
+  [-1, "잔잔함", "var(--r-flat)"]
+];
+const grade = s => GRADES.find(g => (isNum(s) ? s : -1) > g[0]);
+
+function windLabel(off){
+  if (off >  0.42) return ["오프쇼어", "b-off"];
+  if (off < -0.42) return ["온쇼어",   "b-on"];
+  return ["사이드", "b-side"];
+}
+
+/* ============================ API ============================ */
+const MARINE_VARS = "wave_height,wave_direction,wave_period,swell_wave_height," +
+                    "swell_wave_direction,swell_wave_period,wind_wave_height,sea_surface_temperature";
+const AIR_VARS = "wind_speed_10m,wind_direction_10m,wind_gusts_10m,temperature_2m";
+const DAYS = 7;
+
+async function getJSON(url){
+  const res = await fetch(url);
+  if (!res.ok){
+    let msg = "HTTP " + res.status;
+    try { const j = await res.json(); if (j && j.reason) msg = j.reason; } catch (_){}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+const marineURL = (lat, lon, vars) =>
+  "https://marine-api.open-meteo.com/v1/marine?latitude=" + lat.toFixed(4) +
+  "&longitude=" + lon.toFixed(4) + "&hourly=" + vars +
+  "&timezone=Asia%2FSeoul&forecast_days=" + DAYS;
+
+/** 격자가 육지로 판정돼 전부 null 이면 앞바다 쪽으로 조금씩 밀어가며 재시도 */
+async function fetchMarine(spot){
+  const lat0 = spot.sea[0], lon0 = spot.sea[1];
+  const rad = spot.facing * Math.PI / 180;
+  const steps = [0, 0.06, 0.13, 0.22];
+  let lastErr = null;
+
+  for (const step of steps){
+    const lat = lat0 + Math.cos(rad) * step;
+    const lon = lon0 + Math.sin(rad) * step / Math.cos(lat0 * Math.PI / 180);
+    try {
+      let d;
+      try {
+        d = await getJSON(marineURL(lat, lon, MARINE_VARS));
+      } catch (_){
+        // 일부 격자는 수온을 제공하지 않음 → 제외하고 1회 재시도
+        d = await getJSON(marineURL(lat, lon, MARINE_VARS.replace(",sea_surface_temperature", "")));
+      }
+      if (d && d.hourly && d.hourly.wave_height && d.hourly.wave_height.some(isNum)) return d;
+      lastErr = new Error("해당 좌표에 파랑 모델 데이터가 없습니다.");
+    } catch (e){ lastErr = e; }
+  }
+  throw lastErr || new Error("해상 데이터를 불러오지 못했습니다.");
+}
+
+const cache = new Map();
+
+async function loadSpot(spot){
+  if (cache.has(spot.id)) return cache.get(spot.id);
+
+  const airURL = "https://api.open-meteo.com/v1/forecast?latitude=" + spot.lat +
+    "&longitude=" + spot.lon + "&hourly=" + AIR_VARS +
+    "&timezone=Asia%2FSeoul&forecast_days=" + DAYS + "&wind_speed_unit=ms";
+
+  const both = await Promise.all([ fetchMarine(spot), getJSON(airURL) ]);
+  const M = both[0].hourly, A = both[1].hourly;
+  const airAt = new Map(A.time.map((t, i) => [t, i]));
+  const pick = (arr, i) => (arr && arr[i] != null) ? arr[i] : null;
+
+  const byDate = new Map();
+  M.time.forEach((t, i) => {
+    const j = airAt.has(t) ? airAt.get(t) : -1;
+    const h = {
+      time: t,
+      hour: +t.slice(11, 13),
+      waveH:  pick(M.wave_height, i),
+      waveD:  pick(M.wave_direction, i),
+      waveP:  pick(M.wave_period, i),
+      swellH: pick(M.swell_wave_height, i),
+      swellD: pick(M.swell_wave_direction, i),
+      swellP: pick(M.swell_wave_period, i),
+      windWH: pick(M.wind_wave_height, i),
+      seaT:   pick(M.sea_surface_temperature, i),
+      windSpd: j < 0 ? null : pick(A.wind_speed_10m, j),
+      windDir: j < 0 ? null : pick(A.wind_direction_10m, j),
+      gust:    j < 0 ? null : pick(A.wind_gusts_10m, j),
+      airT:    j < 0 ? null : pick(A.temperature_2m, j)
+    };
+    h.off = offshoreness(h.windDir, spot.facing);
+    h.score = scoreHour(h);
+    const d = t.slice(0, 10);
+    if (!byDate.has(d)) byDate.set(d, []);
+    byDate.get(d).push(h);
+  });
+
+  const data = { byDate: byDate, dates: Array.from(byDate.keys()).sort() };
+  cache.set(spot.id, data);
+  return data;
+}
+
+/* ============================ 하루 요약 ============================ */
+function summarize(hours){
+  const valid = hours.filter(h => isNum(h.score));
+  if (!valid.length) return null;
+
+  const peak = valid.reduce((a, b) => (b.waveH || 0) > (a.waveH || 0) ? b : a);
+  const avg  = Math.round(valid.reduce((s, h) => s + h.score, 0) / valid.length);
+
+  // 추천 시간대: 05~20시 중 최고점에서 좌우로 -10점 이내까지 확장
+  const day = valid.filter(h => h.hour >= 5 && h.hour <= 20);
+  const pool = day.length ? day : valid;
+  const top = pool.reduce((a, b) => b.score > a.score ? b : a);
+  const idx = pool.indexOf(top);
+  let a = idx, b = idx;
+  while (a > 0 && pool[a-1].score >= top.score - 10) a--;
+  while (b < pool.length - 1 && pool[b+1].score >= top.score - 10) b++;
+
+  const seaTs = valid.map(h => h.seaT).filter(isNum);
+  const winds = valid.map(h => h.windSpd).filter(isNum);
+  const pers  = valid.map(h => isNum(h.swellP) ? h.swellP : h.waveP).filter(isNum);
+  const dirs  = valid.map(h => isNum(h.swellD) ? h.swellD : h.waveD).filter(isNum);
+
+  // 하루의 바람 성향: 시간별 오프쇼어도를 풍속으로 가중 평균.
+  // (최고점 한 시간의 풍향만 쓰면 나머지 23시간과 어긋난 라벨이 나온다)
+  const wh = valid.filter(h => isNum(h.windDir) && isNum(h.windSpd));
+  const wsum = wh.reduce((s, h) => s + Math.max(h.windSpd, 0.5), 0);
+  const offAvg = wsum > 0
+    ? wh.reduce((s, h) => s + h.off * Math.max(h.windSpd, 0.5), 0) / wsum
+    : 0;
+
+  return {
+    avg: avg,
+    top: top,
+    offAvg: offAvg,
+    best: { from: pool[a].hour, to: pool[b].hour },
+    peakWave: peak.waveH,
+    peakPeriod: pers.length ? Math.max.apply(null, pers) : null,
+    windAvg: winds.length ? winds.reduce((s, v) => s + v, 0) / winds.length : null,
+    seaT: seaTs.length ? seaTs.reduce((s, v) => s + v, 0) / seaTs.length : null,
+    dirMode: dirs.length ? dirs[Math.floor(dirs.length / 2)] : null
+  };
+}
+
+/* ============================ 렌더 ============================ */
+const app = $("#app");
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
+
+function arrowSVG(deg){
+  if (!isNum(deg)) return '<span class="dimc">–</span>';
+  return '<svg class="arw" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" ' +
+    'stroke-linecap="round" stroke-linejoin="round" style="transform:rotate(' + (deg + 180).toFixed(0) + 'deg)" ' +
+    'aria-hidden="true"><path d="M12 21V4M12 4l-5.5 6M12 4l5.5 6"/></svg>';
+}
+
+/* 차트 기하 — 렌더와 상호작용이 같은 값을 쓰도록 한 곳에 모음 */
+const CH = { W:720, H:210, L:38, R:14, T:14, B:40 };
+CH.iw = CH.W - CH.L - CH.R;
+CH.ih = CH.H - CH.T - CH.B;
+const yMaxOf = hours => {
+  const vs = hours.map(h => h.waveH).filter(isNum);
+  return Math.ceil(Math.max.apply(null, [0.6].concat(vs)) * 1.25 * 4) / 4;
+};
+const chartX = (i, n) => CH.L + (n > 1 ? i / (n - 1) : 0.5) * CH.iw;
+const chartY = (v, yMax) => CH.T + CH.ih - (clamp(isNum(v) ? v : 0, 0, yMax) / yMax) * CH.ih;
+
+function renderChart(hours){
+  const n = hours.length, yMax = yMaxOf(hours);
+  const pts = hours.map((h, i) => chartX(i, n).toFixed(1) + "," + chartY(h.waveH, yMax).toFixed(1));
+  const line = "M" + pts.join("L");
+  const base = (CH.T + CH.ih).toFixed(1);
+  const area = line + "L" + chartX(n-1, n).toFixed(1) + "," + base +
+                      "L" + chartX(0, n).toFixed(1) + "," + base + "Z";
+
+  const ticks = [0, yMax/2, yMax].map(v => {
+    const y = chartY(v, yMax).toFixed(1);
+    return '<line x1="' + CH.L + '" y1="' + y + '" x2="' + (CH.W - CH.R) + '" y2="' + y +
+      '" stroke="rgba(255,255,255,.09)" stroke-width="1"/>' +
+      '<text x="' + (CH.L - 8) + '" y="' + (+y + 4).toFixed(1) + '" text-anchor="end" font-size="10.5" ' +
+      'fill="#63798a" font-variant-numeric="tabular-nums">' + v.toFixed(1) + '</text>';
+  }).join("");
+
+  const bw = CH.iw / n;
+  const strip = hours.map((h, i) => {
+    const g = grade(h.score);
+    const op = isNum(h.score) ? (0.28 + (h.score / 100) * 0.72) : 0.18;
+    return '<rect x="' + (CH.L + i * bw + 0.6).toFixed(1) + '" y="' + (CH.T + CH.ih + 9).toFixed(1) +
+      '" width="' + Math.max(1, bw - 1.2).toFixed(1) + '" height="7" rx="2" fill="' + g[2] +
+      '" opacity="' + op.toFixed(2) + '"/>';
+  }).join("");
+
+  const xlab = hours.map((h, i) => i % 3 === 0
+    ? '<text x="' + chartX(i, n).toFixed(1) + '" y="' + (CH.H - 6) + '" text-anchor="middle" font-size="10.5" ' +
+      'fill="#63798a" font-variant-numeric="tabular-nums">' + pad(h.hour) + '</text>'
+    : "").join("");
+
+  const hits = hours.map((h, i) =>
+    '<rect class="hit" data-i="' + i + '" x="' + (chartX(i, n) - bw / 2).toFixed(1) + '" y="' + CH.T +
+    '" width="' + bw.toFixed(1) + '" height="' + (CH.ih + 18) + '" fill="transparent" style="pointer-events:all"/>'
+  ).join("");
+
+  return '<div class="chart-box">' +
+    '<svg class="chart" viewBox="0 0 ' + CH.W + ' ' + CH.H + '" role="img" ' +
+    'aria-label="시간대별 파고 그래프">' +
+      '<defs><linearGradient id="g-area" x1="0" y1="0" x2="0" y2="1">' +
+        '<stop offset="0%" stop-color="#38bdf8" stop-opacity=".42"/>' +
+        '<stop offset="100%" stop-color="#38bdf8" stop-opacity=".02"/>' +
+      '</linearGradient></defs>' +
+      ticks +
+      '<path d="' + area + '" fill="url(#g-area)"/>' +
+      '<path d="' + line + '" fill="none" stroke="#38bdf8" stroke-width="2.2" ' +
+      'stroke-linejoin="round" stroke-linecap="round"/>' +
+      strip + xlab +
+      '<line id="cursor" x1="0" y1="' + CH.T + '" x2="0" y2="' + (CH.T + CH.ih) +
+      '" stroke="#38bdf8" stroke-width="1" stroke-dasharray="3 3" opacity="0"/>' +
+      '<circle id="cdot" r="4" fill="#38bdf8" stroke="#06121d" stroke-width="2" opacity="0"/>' +
+      hits +
+    '</svg><div class="tip" id="tip"></div></div>';
+}
+
+function renderTable(hours){
+  const now = nowKST();
+  const todayStr = ymd(now);
+  const rows = hours.map((h, i) => {
+    const g = grade(h.score);
+    const wl = windLabel(h.off);
+    const isNow = h.time.slice(0, 10) === todayStr && h.hour === now.getHours();
+    const per = isNum(h.swellP) ? h.swellP : h.waveP;
+    const dir = isNum(h.swellD) ? h.swellD : h.waveD;
+    return '<tr data-i="' + i + '" class="' + (isNow ? "now" : "") + '">' +
+      '<td class="time">' + pad(h.hour) + ':00</td>' +
+      '<td><span class="dot" style="background:' + g[2] + '"></span>' +
+        '<span class="wv">' + (isNum(h.waveH) ? h.waveH.toFixed(1) : "–") + '</span><span class="unit"> m</span></td>' +
+      '<td class="num">' + (isNum(per) ? per.toFixed(0) : "–") + '<span class="unit"> s</span></td>' +
+      '<td>' + arrowSVG(dir) + ' <span class="muted">' + (isNum(dir) ? dirName(dir) : "–") + '</span></td>' +
+      '<td class="num">' + (isNum(h.windSpd) ? h.windSpd.toFixed(1) : "–") + '<span class="unit"> m/s</span></td>' +
+      '<td>' + arrowSVG(h.windDir) + ' <span class="badge ' + wl[1] + '">' + wl[0] + '</span></td>' +
+      '<td class="num muted">' + (isNum(h.seaT) ? h.seaT.toFixed(1) + "°" : "–") + '</td>' +
+      '<td><span style="color:' + g[2] + ';font-weight:670">' + g[1] + '</span></td>' +
+    '</tr>';
+  }).join("");
+
+  return '<div class="tscroll"><table><thead><tr>' +
+    '<th>시각</th><th>파고</th><th class="num">주기</th><th>파향</th>' +
+    '<th class="num">풍속</th><th>풍향</th><th class="num">수온</th><th>컨디션</th>' +
+    '</tr></thead><tbody id="tbody">' + rows + '</tbody></table></div>';
+}
+
+function renderHero(spot, dateStr, sm){
+  const g = grade(sm.avg);
+  const C = 2 * Math.PI * 45;
+  const dash = (clamp(sm.avg, 0, 100) / 100) * C;
+  const d = new Date(dateStr + "T00:00:00");
+  const dateLbl = (d.getMonth() + 1) + "월 " + d.getDate() + "일 (" + DOW[d.getDay()] + ")";
+  const suit = !isNum(sm.seaT) ? "&nbsp;"
+    : sm.seaT >= 24 ? "보드숏" : sm.seaT >= 19 ? "3/2 스프링" : sm.seaT >= 14 ? "3/2 풀슈트" : "4/3 이상";
+  const perLbl = !isNum(sm.peakPeriod) ? "&nbsp;"
+    : sm.peakPeriod >= 9 ? "긴 너울" : sm.peakPeriod >= 6 ? "보통" : "짧은 풍랑";
+
+  return '<div class="hero"><div class="hero-l">' +
+    '<div class="spot-name">' + esc(spot.name) + '<span class="spot-region">' + esc(spot.region) + '</span></div>' +
+    '<div class="hero-date">' + dateLbl + ' · 하루 종합</div>' +
+    '<div class="metrics">' +
+      '<div class="m"><div class="k">최고 파고</div><div class="v">' +
+        (isNum(sm.peakWave) ? sm.peakWave.toFixed(1) : "–") + '<small>m</small></div>' +
+        '<div class="s">' + (isNum(sm.dirMode) ? dirName(sm.dirMode) + "쪽 너울" : "&nbsp;") + '</div></div>' +
+      '<div class="m"><div class="k">최대 주기</div><div class="v">' +
+        (isNum(sm.peakPeriod) ? sm.peakPeriod.toFixed(0) : "–") + '<small>s</small></div>' +
+        '<div class="s">' + perLbl + '</div></div>' +
+      '<div class="m"><div class="k">평균 바람</div><div class="v">' +
+        (isNum(sm.windAvg) ? sm.windAvg.toFixed(1) : "–") + '<small>m/s</small></div>' +
+        '<div class="s">' + windLabel(sm.offAvg)[0] + ' 경향</div></div>' +
+      '<div class="m"><div class="k">수온</div><div class="v">' +
+        (isNum(sm.seaT) ? sm.seaT.toFixed(1) : "–") + '<small>°C</small></div>' +
+        '<div class="s">' + suit + '</div></div>' +
+    '</div></div>' +
+    '<div class="score"><div class="ring">' +
+      '<svg width="104" height="104" viewBox="0 0 104 104" style="transform:rotate(-90deg)">' +
+        '<circle cx="52" cy="52" r="45" fill="none" stroke="rgba(255,255,255,.09)" stroke-width="8"/>' +
+        '<circle cx="52" cy="52" r="45" fill="none" stroke="' + g[2] + '" stroke-width="8" stroke-linecap="round" ' +
+        'stroke-dasharray="' + dash.toFixed(1) + ' ' + C.toFixed(1) + '"/></svg>' +
+      '<div class="lbl"><div class="num" style="color:' + g[2] + '">' + sm.avg + '</div><div class="of">/ 100</div></div>' +
+    '</div><div>' +
+      '<div class="grade" style="color:' + g[2] + '">' + g[1] + '</div>' +
+      '<div class="best">추천 ' + pad(sm.best.from) + ':00–' + pad(sm.best.to) + ':00</div>' +
+    '</div></div></div>';
+}
+
+/* 차트 ↔ 표 상호작용 */
+function wireChart(hours){
+  const svg = $("svg.chart");
+  if (!svg) return;
+  const tip = $("#tip"), box = $(".chart-box"), cur = $("#cursor"), dot = $("#cdot"), tbody = $("#tbody");
+  const n = hours.length, yMax = yMaxOf(hours);
+
+  const clear = () => {
+    tip.classList.remove("on");
+    cur.setAttribute("opacity", "0");
+    dot.setAttribute("opacity", "0");
+    if (tbody) tbody.querySelectorAll("tr.hl").forEach(r => r.classList.remove("hl"));
+  };
+
+  const show = i => {
+    const h = hours[i], g = grade(h.score);
+    const x = chartX(i, n), y = chartY(h.waveH, yMax);
+
+    cur.setAttribute("x1", x); cur.setAttribute("x2", x); cur.setAttribute("opacity", ".7");
+    dot.setAttribute("cx", x); dot.setAttribute("cy", y); dot.setAttribute("opacity", "1");
+
+    const per = isNum(h.swellP) ? h.swellP : h.waveP;
+    tip.innerHTML =
+      "<b>" + pad(h.hour) + ':00</b> &nbsp;<span style="color:' + g[2] + ';font-weight:650">' + g[1] + "</span><br>" +
+      '<span class="r">파고</span> ' + (isNum(h.waveH) ? h.waveH.toFixed(1) + " m" : "–") + " · " +
+      '<span class="r">주기</span> ' + (isNum(per) ? per.toFixed(0) + " s" : "–") + "<br>" +
+      '<span class="r">바람</span> ' + (isNum(h.windSpd) ? h.windSpd.toFixed(1) + " m/s" : "–") + " " +
+      (isNum(h.windDir) ? dirName(h.windDir) : "");
+    tip.classList.add("on");
+
+    const bw = box.clientWidth, bh = box.clientHeight;
+    tip.style.left = "0px";
+    const tw = tip.offsetWidth, th = tip.offsetHeight;
+    tip.style.left = clamp((x / CH.W) * bw - tw / 2, 2, Math.max(2, bw - tw - 2)) + "px";
+    tip.style.top  = Math.max(0, (y / CH.H) * bh - th - 12) + "px";
+
+    if (tbody){
+      tbody.querySelectorAll("tr.hl").forEach(r => r.classList.remove("hl"));
+      const row = tbody.querySelector('tr[data-i="' + i + '"]');
+      if (row) row.classList.add("hl");
+    }
+  };
+
+  // 마우스는 hover 로 훑고, 터치는 탭으로 찍는다.
+  // 터치 드래그는 가로채지 않는다 — 그래프 위에서도 세로 스크롤이 되어야 하므로
+  // preventDefault 도, touch-action:none 도 걸지 않는다.
+  svg.querySelectorAll(".hit").forEach(el => {
+    const i = +el.dataset.i;
+    el.addEventListener("pointerenter", ev => { if (ev.pointerType === "mouse") show(i); });
+    el.addEventListener("pointerdown", () => show(i));
+  });
+  svg.addEventListener("pointerleave", ev => { if (ev.pointerType === "mouse") clear(); });
+  svg.addEventListener("pointercancel", clear);
+}
+
+/* ============================ 상태 & 라우팅 ============================ */
+const state = { spot: "jukdo", date: ymd(nowKST()) };
+
+function readURL(){
+  const q = new URLSearchParams(location.search);
+  const s = q.get("spot"), d = q.get("date");
+  if (s && SPOTS.some(x => x.id === s)) state.spot = s;
+  if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) state.date = d;
+}
+function writeURL(){
+  history.replaceState(null, "", "?" + new URLSearchParams({ spot: state.spot, date: state.date }));
+}
+
+function buildSpotSelect(){
+  const sel = $("#spot");
+  const groups = [];
+  SPOTS.forEach(s => { const g = s.region.split(" ")[0]; if (groups.indexOf(g) < 0) groups.push(g); });
+  sel.innerHTML = groups.map(g =>
+    '<optgroup label="' + esc(g) + '">' +
+    SPOTS.filter(s => s.region.indexOf(g) === 0).map(s =>
+      '<option value="' + s.id + '">' + esc(s.name) + " · " + esc(s.region.split(" ")[1] || "") + "</option>").join("") +
+    "</optgroup>").join("");
+  sel.value = state.spot;
+}
+
+function buildDays(dates, data){
+  const el = $("#days");
+  const today = ymd(nowKST());
+  el.innerHTML = dates.map(ds => {
+    const d = new Date(ds + "T00:00:00");
+    const sm = summarize(data.byDate.get(ds) || []);
+    const g = grade(sm ? sm.avg : null);
+    const cls = d.getDay() === 0 ? "sun" : d.getDay() === 6 ? "sat" : "";
+    const op = sm ? (0.3 + (sm.avg / 100) * 0.7).toFixed(2) : "0.35";
+    return '<button class="day ' + cls + '" type="button" data-d="' + ds + '" aria-pressed="' + (ds === state.date) + '">' +
+      '<span class="dow">' + (ds === today ? "오늘" : DOW[d.getDay()]) + "</span>" +
+      '<span class="dnum">' + d.getDate() + "</span>" +
+      '<span class="pill" style="background:' + (sm ? g[2] : "var(--line-strong)") + ';opacity:' + op + '"></span>' +
+    "</button>";
+  }).join("");
+
+  el.querySelectorAll(".day").forEach(b =>
+    b.addEventListener("click", () => { state.date = b.dataset.d; render(); }));
+
+  const di = $("#date");
+  di.min = dates[0];
+  di.max = dates[dates.length - 1];
+  di.value = state.date;
+}
+
+let reqId = 0;
+
+async function render(){
+  const my = ++reqId;
+  const spot = SPOTS.find(s => s.id === state.spot);
+  $("#spot").value = state.spot;
+  writeURL();
+
+  app.innerHTML = '<div class="card"><div class="state"><div class="spin"></div>' +
+    esc(spot.name) + " 예보를 불러오는 중…</div></div>";
+
+  let data;
+  try {
+    data = await loadSpot(spot);
+  } catch (e){
+    if (my !== reqId) return;
+    app.innerHTML = '<div class="card"><div class="state">' +
+      '<div class="err">예보를 불러오지 못했습니다.</div>' +
+      '<div style="margin-top:6px;font-size:12px" class="dimc">' + esc(e.message) + "</div>" +
+      '<button class="retry" id="retry" type="button">다시 시도</button></div></div>';
+    $("#retry").addEventListener("click", () => { cache.delete(spot.id); render(); });
+    return;
+  }
+  if (my !== reqId) return;
+
+  if (data.dates.indexOf(state.date) < 0) state.date = data.dates[0];
+  buildDays(data.dates, data);
+  writeURL();
+
+  const hours = data.byDate.get(state.date) || [];
+  const sm = summarize(hours);
+  if (!sm){
+    app.innerHTML = '<div class="card"><div class="state">이 날짜의 예보 데이터가 아직 없습니다.</div></div>';
+    return;
+  }
+
+  app.innerHTML =
+    renderHero(spot, state.date, sm) +
+    '<div class="card">' +
+      "<h2>시간대별 파고</h2>" +
+      '<div class="sub">아래 막대 색은 서핑 컨디션 점수 · 그래프를 짚으면 상세가 나옵니다</div>' +
+      renderChart(hours) +
+      '<div class="legend">' +
+        GRADES.slice().reverse().map(g =>
+          '<span><i class="dot" style="background:' + g[2] + '"></i>' + g[1] + "</span>").join("") +
+      "</div>" +
+    "</div>" +
+    '<div class="card">' +
+      "<h2>상세 예보</h2>" +
+      '<div class="sub">파향·풍향 화살표는 파도와 바람이 <b>진행하는 방향</b>을 가리킵니다</div>' +
+      renderTable(hours) +
+    "</div>";
+
+  wireChart(hours);
+}
+
+/* ============================ init ============================ */
+readURL();
+buildSpotSelect();
+$("#date").value = state.date;
+
+$("#spot").addEventListener("change", e => { state.spot = e.target.value; render(); });
+$("#date").addEventListener("change", e => { if (e.target.value){ state.date = e.target.value; render(); } });
+
+render();
+</script>
+</body>
+</html>

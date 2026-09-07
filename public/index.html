@@ -43,8 +43,14 @@ body::before{
 .wrap{max-width:1080px;margin:0 auto;padding:22px 18px 60px}
 
 /* ---------- header ---------- */
-header{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:22px}
-.logo{font-size:23px;font-weight:750;letter-spacing:-.02em;display:flex;align-items:center;gap:9px}
+header{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+.logo{
+  font-size:23px;font-weight:750;letter-spacing:-.02em;display:flex;align-items:center;gap:9px;
+  color:inherit;text-decoration:none;cursor:pointer;border-radius:10px;padding:4px 7px;margin:-4px -7px;
+  transition:background .15s;
+}
+.logo:hover{background:var(--surface)}
+.logo:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .logo .mk{
   font-size:20px;filter:drop-shadow(0 2px 6px rgba(56,189,248,.55));
   animation:bob 3.4s ease-in-out infinite;
@@ -52,8 +58,23 @@ header{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:2
 @keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
 .tag{font-size:12.5px;color:var(--muted)}
 
+/* ---------- tabs ---------- */
+.tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}
+.tab{
+  flex:0 0 auto;padding:9px 16px;border-radius:12px;cursor:pointer;font-family:inherit;
+  background:var(--surface);border:1px solid var(--line);color:var(--muted);
+  font-weight:650;font-size:13.5px;text-decoration:none;transition:.16s;
+}
+.tab:hover{background:var(--surface-2);border-color:var(--line-strong);color:var(--text)}
+.tab:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.tab[aria-current="page"]{
+  background:rgba(56,189,248,.16);border-color:var(--accent);color:var(--text);
+  box-shadow:0 0 0 1px rgba(56,189,248,.3);
+}
+
 /* ---------- controls ---------- */
 .controls{display:grid;gap:12px;margin-bottom:18px}
+#controls[hidden]{display:none} /* .controls 의 display:grid 가 기본 hidden 스타일보다 우선하므로 명시적으로 덮어씀 */
 .ctl-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 label.fld{
   display:flex;align-items:center;gap:9px;background:var(--surface);
@@ -191,6 +212,56 @@ td.time{font-weight:650;font-family:var(--mono);font-size:13px}
 }
 .retry:hover{background:rgba(56,189,248,.16);border-color:var(--accent)}
 
+/* ---------- 홈: 더 보기 링크 ---------- */
+.home-more{color:var(--accent);text-decoration:none;font-size:13px;font-weight:650}
+.home-more:hover{text-decoration:underline}
+.home-more-row{text-align:right;margin-top:12px}
+
+/* ---------- 파도 제보 카드 ---------- */
+.report-list{display:grid;gap:12px}
+.report-card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.report-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+.spot-badge{background:var(--surface-2);border:1px solid var(--line);color:var(--muted)}
+.report-nick{font-weight:650;font-size:13.5px}
+.report-time{font-size:11.5px;margin-left:auto;white-space:nowrap}
+.report-stars{color:var(--accent-2);font-size:13px;margin-bottom:5px;letter-spacing:1px}
+.report-body{margin:0;font-size:13.5px;line-height:1.65;color:var(--text);word-break:break-word;white-space:pre-wrap}
+.report-wh{font-size:11.5px;margin-top:7px}
+
+/* ---------- 파도 제보 작성 폼 ---------- */
+.rform{display:grid;gap:12px;margin-top:6px}
+.rf-row{display:flex;gap:10px;flex-wrap:wrap}
+.rf-row .fld{flex:1 1 200px}
+.rf-row .fld select,.rf-row .fld input{max-width:none;width:100%}
+input[type=text],input[type=number]{
+  background:transparent;border:0;color:var(--text);font:inherit;font-size:14.5px;
+  font-weight:550;outline:none;width:100%;
+}
+.rf-textarea-wrap{display:flex;flex-direction:column;gap:6px}
+.rf-textarea-wrap>span{font-size:11px;font-weight:650;color:var(--dim);letter-spacing:.06em;text-transform:uppercase}
+textarea#rf-body{
+  background:var(--surface);border:1px solid var(--line);border-radius:12px;color:var(--text);
+  font:inherit;font-size:14px;padding:11px 13px;resize:vertical;min-height:96px;outline:none;
+  transition:border-color .18s,background .18s;width:100%;
+}
+textarea#rf-body:focus{border-color:rgba(56,189,248,.6);background:var(--surface-2)}
+.rf-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.rf-count{font-size:11.5px}
+.rf-submit{
+  background:rgba(56,189,248,.16);border:1px solid var(--accent);color:var(--text);font:inherit;font-weight:650;
+  font-size:13.5px;padding:9px 20px;border-radius:10px;cursor:pointer;transition:.15s;
+  display:inline-flex;align-items:center;gap:8px;
+}
+.rf-submit:hover:not(:disabled){background:rgba(56,189,248,.26)}
+.rf-submit:disabled{opacity:.6;cursor:default}
+.rf-spin{
+  width:12px;height:12px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;
+  border-radius:50%;animation:sp .6s linear infinite;display:inline-block;flex:0 0 auto;
+}
+.rf-msg{font-size:12.5px;min-height:16px}
+.rf-msg.rf-err{color:#fca5a5}
+.rf-msg.rf-ok{color:var(--r-exc)}
+
 /* ---------- legend / footer ---------- */
 .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--muted);margin-top:14px;padding-top:13px;border-top:1px solid var(--line)}
 .legend span{display:flex;align-items:center;gap:5px}
@@ -218,11 +289,17 @@ footer a:hover{color:var(--accent)}
 <div class="wrap">
 
   <header>
-    <div class="logo"><span class="mk">🌊</span>WaveTracer</div>
+    <a href="/" class="logo" id="logo" data-nav><span class="mk">🌊</span>WaveTracer</a>
     <div class="tag">국내 서핑 포인트 파도 예보 · 최대 7일</div>
   </header>
 
-  <div class="controls">
+  <nav class="tabs" id="tabs" aria-label="주요 메뉴">
+    <a href="/" class="tab" data-nav data-route="home">홈</a>
+    <a href="/forecast" class="tab" data-nav data-route="forecast">파도예보</a>
+    <a href="/reports" class="tab" data-nav data-route="reports">파도제보</a>
+  </nav>
+
+  <div class="controls" id="controls">
     <div class="ctl-row">
       <label class="fld">
         <span>포인트</span>
@@ -270,6 +347,7 @@ const SPOTS = [
 
 /* ============================ 유틸 ============================ */
 const $ = (s, r) => (r || document).querySelector(s);
+const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
 const pad = n => String(n).padStart(2, "0");
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const isNum = v => typeof v === "number" && Number.isFinite(v);
@@ -690,7 +768,8 @@ function readURL(){
   if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) state.date = d;
 }
 function writeURL(){
-  history.replaceState(null, "", "?" + new URLSearchParams({ spot: state.spot, date: state.date }));
+  // 이 함수는 /forecast 라우트에 있을 때만 호출된다 — 경로를 직접 못박아 둔다.
+  history.replaceState(null, "", "/forecast?" + new URLSearchParams({ spot: state.spot, date: state.date }));
 }
 
 function buildSpotSelect(){
@@ -722,7 +801,7 @@ function buildDays(dates, data){
   }).join("");
 
   el.querySelectorAll(".day").forEach(b =>
-    b.addEventListener("click", () => { state.date = b.dataset.d; render(); }));
+    b.addEventListener("click", () => { state.date = b.dataset.d; renderForecastPage(); }));
 
   const di = $("#date");
   di.min = dates[0];
@@ -785,7 +864,11 @@ function renderAdvisoryBanner(advisory, spotId){
 
 let reqId = 0;
 
-async function render(){
+async function renderForecastPage(){
+  // 주의: 여기서 readURL() 을 다시 호출하면 안 된다 — 날짜 칩·포인트 셀렉트 변경
+  // 핸들러가 state 를 먼저 바꾼 뒤 이 함수를 직접 부르는데, 그 시점엔 URL 이 아직
+  // 갱신 전(writeURL 은 아래에서 호출)이라 readURL() 이 그 변경을 도로 덮어써 버린다.
+  // URL → state 동기화는 /forecast 라우트 "진입" 시점에만, renderRoute() 에서 한다.
   const my = ++reqId;
   const spot = SPOTS.find(s => s.id === state.spot);
   $("#spot").value = state.spot;
@@ -803,7 +886,7 @@ async function render(){
       '<div class="err">예보를 불러오지 못했습니다.</div>' +
       '<div style="margin-top:6px;font-size:12px" class="dimc">' + esc(e.message) + "</div>" +
       '<button class="retry" id="retry" type="button">다시 시도</button></div></div>';
-    $("#retry").addEventListener("click", () => { cache.delete(spot.id); render(); });
+    $("#retry").addEventListener("click", () => { cache.delete(spot.id); renderForecastPage(); });
     return;
   }
   if (my !== reqId) return;
@@ -840,15 +923,365 @@ async function render(){
   wireChart(hours);
 }
 
+/* ============================ 파도 제보 게시판 ============================
+   /api/reports 를 씀 — src/worker.js 가 D1(reports 테이블)에 저장/조회한다.
+   D1 바인딩이 아직 없으면 advisory 와 같은 패턴으로 { ready:false } 가 오고,
+   화면은 에러가 아니라 "첫 제보를 남겨보세요" 같은 친절한 빈 상태로 그린다.
+============================================================================ */
+function spotNameOf(id){
+  const s = SPOTS.find(x => x.id === id);
+  return s ? s.name : id;
+}
+
+/** ISO 문자열 → "3분 전"/"2시간 전"/"어제"/"3일 전" 같은 상대 시각 */
+function relTime(iso){
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return "";
+  const min = Math.max(0, Math.floor((Date.now() - t) / 60000));
+  if (min < 1) return "방금 전";
+  if (min < 60) return min + "분 전";
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return hr + "시간 전";
+  const day = Math.floor(hr / 24);
+  if (day === 1) return "어제";
+  if (day < 7) return day + "일 전";
+  const d = new Date(t);
+  return (d.getMonth() + 1) + "월 " + d.getDate() + "일";
+}
+
+const stars = n => isNum(n) ? "★".repeat(clamp(Math.round(n), 0, 5)) + "☆".repeat(5 - clamp(Math.round(n), 0, 5)) : "";
+const excerpt = (s, n) => (s.length > n ? s.slice(0, n) + "…" : s);
+
+/* 홈의 "최근 파도 제보"와 /reports 목록이 같은 카드를 재사용한다.
+   nickname/body 는 사용자 입력이라 반드시 esc() 를 거쳐 innerHTML 에 들어간다. */
+function renderReportCard(r){
+  return '<article class="report-card">' +
+    '<div class="report-head">' +
+      '<span class="badge spot-badge">' + esc(spotNameOf(r.spotId)) + '</span>' +
+      '<span class="report-nick">' + esc(r.nickname) + '</span>' +
+      '<span class="report-time dimc">' + esc(relTime(r.createdAt)) + '</span>' +
+    '</div>' +
+    (isNum(r.rating) ? '<div class="report-stars">' + stars(r.rating) + '</div>' : '') +
+    '<p class="report-body">' + esc(excerpt(String(r.body), 100)) + '</p>' +
+    (isNum(r.waveHeight) ? '<div class="report-wh muted">체감 파고 ' + r.waveHeight.toFixed(1) + ' m</div>' : '') +
+  '</article>';
+}
+
+/** withLink: 홈 카드에서는 "제보하러 가기" 링크를 보여주고, /reports 자체에서는 생략 */
+function reportsEmptyState(withLink){
+  return '<div class="state">' +
+    '<div style="font-size:26px;margin-bottom:8px" aria-hidden="true">🏄</div>' +
+    '<div>아직 등록된 파도 제보가 없어요.</div>' +
+    '<div class="dimc" style="margin-top:4px;font-size:12.5px">' +
+      (withLink ? "가장 먼저 오늘의 파도를 알려주세요!" : "위 양식으로 가장 먼저 알려주세요!") +
+    '</div>' +
+    (withLink ? '<a href="/reports" data-nav class="retry" style="display:inline-block;text-decoration:none;margin-top:14px">제보하러 가기 →</a>' : '') +
+  '</div>';
+}
+
+async function fetchReports(limit){
+  const res = await fetch("/api/reports?limit=" + limit, { cache: "no-store" });
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  return res.json();
+}
+
+/* ============================ 홈 ============================
+   블로그 스타일로 딱 두 섹션만: 오늘의 파도(마지막으로 본 포인트 기준) +
+   최근 파도 제보 5개. 두 섹션은 서로 독립적으로 로드해서, 한쪽이 느리거나
+   실패해도 다른 쪽을 막지 않는다.
+================================================================ */
+function lastSpotOrDefault(){
+  let id = "jukdo";
+  try {
+    const saved = localStorage.getItem("wt:lastSpot");
+    if (saved && SPOTS.some(s => s.id === saved)) id = saved;
+  } catch (_){ /* 일부 컨텍스트(프라이빗 모드 등)에서 localStorage 접근이 막혀 있을 수 있음 */ }
+  return SPOTS.find(s => s.id === id) || SPOTS[0];
+}
+
+async function renderHomePage(){
+  const my = ++reqId;
+  const spot = lastSpotOrDefault();
+
+  app.innerHTML =
+    '<section class="card">' +
+      '<h2>오늘의 파도</h2>' +
+      '<div class="sub">최근 확인한 포인트 · ' + esc(spot.name) + '</div>' +
+      '<div id="home-today"><div class="state"><div class="spin"></div>불러오는 중…</div></div>' +
+    '</section>' +
+    '<section class="card">' +
+      '<h2>최근 파도 제보</h2>' +
+      '<div class="sub">서퍼들이 남긴 최신 제보</div>' +
+      '<div id="home-reports"><div class="state"><div class="spin"></div>불러오는 중…</div></div>' +
+    '</section>';
+
+  loadHomeToday(my, spot);
+  loadHomeReports(my);
+}
+
+async function loadHomeToday(my, spot){
+  const el = $("#home-today");
+  const today = ymd(nowKST());
+  try {
+    const [data, advisory] = await Promise.all([ loadSpot(spot), loadAdvisory() ]);
+    if (my !== reqId) return;
+    const dateStr = data.dates.indexOf(today) >= 0 ? today : data.dates[0];
+    const sm = summarize(data.byDate.get(dateStr) || []);
+    if (!sm){ el.innerHTML = '<div class="state">오늘의 예보 데이터가 아직 없습니다.</div>'; return; }
+    el.innerHTML =
+      renderAdvisoryBanner(advisory, spot.id) +
+      renderHero(spot, dateStr, sm) +
+      '<div class="home-more-row"><a href="/forecast?' +
+        esc(new URLSearchParams({ spot: spot.id, date: dateStr }).toString()) +
+        '" data-nav class="home-more">전체 예보 보기 →</a></div>';
+  } catch (e){
+    if (my !== reqId) return;
+    el.innerHTML = '<div class="state"><div class="err">예보를 불러오지 못했습니다.</div></div>';
+  }
+}
+
+async function loadHomeReports(my){
+  const el = $("#home-reports");
+  try {
+    const data = await fetchReports(5);
+    if (my !== reqId) return;
+    if (!data.ready || !data.reports.length){ el.innerHTML = reportsEmptyState(true); return; }
+    el.innerHTML = '<div class="report-list">' + data.reports.map(renderReportCard).join("") + '</div>' +
+      '<div class="home-more-row"><a href="/reports" data-nav class="home-more">제보 전체 보기 →</a></div>';
+  } catch (e){
+    if (my !== reqId) return;
+    el.innerHTML = reportsEmptyState(true);
+  }
+}
+
+/* ============================ 파도제보 (/reports) ============================ */
+function reportSpotOptions(selected){
+  return SPOTS.map(s =>
+    '<option value="' + s.id + '"' + (s.id === selected ? " selected" : "") + '>' + esc(s.name) + '</option>'
+  ).join("");
+}
+
+function renderReportForm(){
+  const lastSpot = lastSpotOrDefault().id;
+  const ratingOpts = [5, 4, 3, 2, 1].map(n =>
+    '<option value="' + n + '">' + "★".repeat(n) + "☆".repeat(5 - n) + '</option>').join("");
+  return '<div class="card">' +
+    '<h2>파도 제보 남기기</h2>' +
+    '<div class="sub">방금 다녀온 포인트의 파도 상태를 알려주세요</div>' +
+    '<form id="reportForm" class="rform" novalidate>' +
+      '<div class="rf-row">' +
+        '<label class="fld"><span>포인트</span><select id="rf-spot" required>' + reportSpotOptions(lastSpot) + '</select></label>' +
+        '<label class="fld"><span>닉네임</span><input id="rf-nick" type="text" maxlength="20" placeholder="예: 죽도서퍼" required></label>' +
+      '</div>' +
+      '<div class="rf-row">' +
+        '<label class="fld"><span>별점</span><select id="rf-rating"><option value="">선택 안 함</option>' + ratingOpts + '</select></label>' +
+        '<label class="fld"><span>체감 파고(m)</span><input id="rf-wh" type="number" min="0" max="15" step="0.1" placeholder="예: 1.2"></label>' +
+      '</div>' +
+      '<div class="rf-textarea-wrap">' +
+        '<span>내용</span>' +
+        '<textarea id="rf-body" maxlength="500" rows="4" placeholder="파도 상태, 바람, 사람 많은지 등을 자유롭게 적어주세요" required></textarea>' +
+      '</div>' +
+      '<div class="rf-foot">' +
+        '<span id="rf-count" class="dimc rf-count">0 / 500</span>' +
+        '<button type="submit" id="rf-submit" class="rf-submit">제보 등록</button>' +
+      '</div>' +
+      '<div id="rf-msg" class="rf-msg" role="status" aria-live="polite"></div>' +
+    '</form>' +
+  '</div>';
+}
+
+/** 서버 검증 규칙을 그대로 거울처럼 복제 — 왕복 없이 바로 안내하기 위함.
+    최종 판단은 항상 서버가 하므로(아래 fetch), 여기서 뚫려도 보안엔 영향 없다. */
+function validateReportClient(p){
+  if (!SPOTS.some(s => s.id === p.spotId)) return "포인트를 선택해주세요.";
+  if (p.nickname.length < 1 || p.nickname.length > 20) return "닉네임은 1~20자로 입력해주세요.";
+  if (p.body.length < 1 || p.body.length > 500) return "내용은 1~500자로 입력해주세요.";
+  if (p.rating !== undefined && (!Number.isInteger(p.rating) || p.rating < 1 || p.rating > 5)) return "별점은 1~5 사이여야 합니다.";
+  if (p.waveHeight !== undefined && (!isNum(p.waveHeight) || p.waveHeight < 0 || p.waveHeight > 15)) return "체감 파고는 0~15m 사이여야 합니다.";
+  return null;
+}
+
+function prependReport(r){
+  const list = $("#report-list");
+  if (!list) return;
+  let grid = list.querySelector(".report-list");
+  if (!grid){ list.innerHTML = '<div class="report-list"></div>'; grid = list.querySelector(".report-list"); }
+  grid.insertAdjacentHTML("afterbegin", renderReportCard(r));
+}
+
+function wireReportForm(){
+  const form = $("#reportForm");
+  const bodyEl = $("#rf-body"), counter = $("#rf-count");
+  const updateCount = () => { counter.textContent = bodyEl.value.length + " / 500"; };
+  bodyEl.addEventListener("input", updateCount);
+  updateCount();
+
+  form.addEventListener("submit", async e => {
+    e.preventDefault();
+    const msg = $("#rf-msg");
+    const submitBtn = $("#rf-submit");
+    const ratingVal = $("#rf-rating").value;
+    const whVal = $("#rf-wh").value;
+    const payload = {
+      spotId: $("#rf-spot").value,
+      nickname: $("#rf-nick").value.trim(),
+      body: $("#rf-body").value.trim(),
+    };
+    if (ratingVal !== "") payload.rating = +ratingVal;
+    if (whVal !== "") payload.waveHeight = +whVal;
+
+    const clientErr = validateReportClient(payload);
+    if (clientErr){
+      msg.textContent = clientErr;
+      msg.className = "rf-msg rf-err";
+      return;
+    }
+
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<span class="rf-spin"></span>등록 중…';
+    msg.textContent = "";
+    msg.className = "rf-msg";
+
+    try {
+      const res = await fetch("/api/reports", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (res.status === 201 && j && j.report){
+        prependReport(j.report);
+        form.reset();
+        updateCount();
+        msg.textContent = "제보가 등록되었습니다. 감사합니다!";
+        msg.className = "rf-msg rf-ok";
+      } else if (res.status === 429){
+        msg.textContent = (j && j.message) || "너무 많은 요청입니다. 잠시 후 다시 시도해주세요.";
+        msg.className = "rf-msg rf-err";
+      } else if (res.status === 503){
+        msg.textContent = (j && j.message) || "현재 제보 기능을 사용할 수 없습니다. 잠시 후 다시 시도해주세요.";
+        msg.className = "rf-msg rf-err";
+      } else if (res.status === 400){
+        msg.textContent = (j && j.message) || "입력값을 다시 확인해주세요.";
+        msg.className = "rf-msg rf-err";
+      } else {
+        msg.textContent = "제보 등록에 실패했습니다. 잠시 후 다시 시도해주세요.";
+        msg.className = "rf-msg rf-err";
+      }
+    } catch (e2){
+      msg.textContent = "네트워크 오류로 제보를 등록하지 못했습니다.";
+      msg.className = "rf-msg rf-err";
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = "제보 등록";
+    }
+  });
+}
+
+async function renderReportsPage(){
+  const my = ++reqId;
+  app.innerHTML =
+    renderReportForm() +
+    '<div class="card">' +
+      "<h2>최근 제보</h2>" +
+      '<div class="sub">최신 30개</div>' +
+      '<div id="report-list"><div class="state"><div class="spin"></div>제보를 불러오는 중…</div></div>' +
+    "</div>";
+  wireReportForm();
+
+  try {
+    const data = await fetchReports(30);
+    if (my !== reqId) return;
+    const list = $("#report-list");
+    if (!data.ready || !data.reports.length) list.innerHTML = reportsEmptyState(false);
+    else list.innerHTML = '<div class="report-list">' + data.reports.map(renderReportCard).join("") + '</div>';
+  } catch (e){
+    if (my !== reqId) return;
+    $("#report-list").innerHTML = reportsEmptyState(false);
+  }
+}
+
+/* ============================ 라우팅 ============================
+   경로 3개: / (홈) · /forecast (파도예보) · /reports (파도제보).
+   해시 라우팅 대신 History API 를 쓴다 — wrangler.jsonc 의
+   assets.not_found_handling: "single-page-application" 덕분에 /forecast, /reports
+   를 새로고침해도(또는 직접 주소창에 쳐도) 그대로 이 index.html 이 서빙된다.
+================================================================== */
+const TITLE_OF = {
+  home:     "WaveTracer — 국내 서핑 파도 예보",
+  forecast: "WaveTracer — 파도예보",
+  reports:  "WaveTracer — 파도 제보",
+};
+
+/** 현재 location 을 라우트 이름으로 해석.
+    - 옛 공유 링크(예: /?spot=jukdo&date=...)는 /forecast 로 보정한다.
+    - 알 수 없는 경로는 홈으로 보정한다.
+    둘 다 replaceState 라 브라우저 히스토리를 어지럽히지 않는다. */
+function resolveRoute(){
+  const path = location.pathname;
+  if (path === "/"){
+    if (/[?&](spot|date)=/.test(location.search)){
+      history.replaceState(null, "", "/forecast" + location.search);
+      return "forecast";
+    }
+    return "home";
+  }
+  if (path === "/forecast") return "forecast";
+  if (path === "/reports") return "reports";
+  history.replaceState(null, "", "/");
+  return "home";
+}
+
+function updateChrome(route){
+  document.title = TITLE_OF[route];
+  $("#controls").hidden = route !== "forecast";
+  $$(".tab").forEach(a => {
+    if (a.dataset.route === route) a.setAttribute("aria-current", "page");
+    else a.removeAttribute("aria-current");
+  });
+}
+
+function renderRoute(){
+  const route = resolveRoute();
+  updateChrome(route);
+  if (route === "forecast"){
+    readURL(); // /forecast 로 "진입"할 때만 쿼리(?spot=&date=)를 state 에 반영
+    renderForecastPage();
+  }
+  else if (route === "reports") renderReportsPage();
+  else renderHomePage();
+}
+
+function navigate(path){
+  if (path !== location.pathname + location.search) history.pushState(null, "", path);
+  renderRoute();
+}
+
+window.addEventListener("popstate", renderRoute);
+
+// 로고·탭·"전체 보기" 링크 등 data-nav 를 단 내부 링크는 전부 여기서 가로채
+// pushState 로 처리한다 — 전체 새로고침 없이 SPA 로 전환된다.
+document.addEventListener("click", e => {
+  const a = e.target.closest("a[data-nav]");
+  if (!a) return;
+  e.preventDefault();
+  navigate(a.getAttribute("href"));
+});
+
 /* ============================ init ============================ */
-readURL();
 buildSpotSelect();
 $("#date").value = state.date;
 
-$("#spot").addEventListener("change", e => { state.spot = e.target.value; render(); });
-$("#date").addEventListener("change", e => { if (e.target.value){ state.date = e.target.value; render(); } });
+$("#spot").addEventListener("change", e => {
+  state.spot = e.target.value;
+  try { localStorage.setItem("wt:lastSpot", state.spot); } catch (_){}
+  renderForecastPage();
+});
+$("#date").addEventListener("change", e => {
+  if (e.target.value){ state.date = e.target.value; renderForecastPage(); }
+});
 
-render();
+renderRoute();
 </script>
 </body>
 </html>

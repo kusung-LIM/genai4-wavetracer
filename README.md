@@ -39,6 +39,33 @@ cp .dev.vars.example .dev.vars   # 그 다음 KMA_SERVICE_KEY= 뒤에 실제 키
 `wrangler dev` 에서도 운영과 똑같이 `{ ready:false }` 가 오고, 배너는
 "연동 준비 중" 상태로 뜬다 — 정상 동작이다.
 
+파도 제보 게시판을 쓰려면 D1 스키마를 로컬에도 한 번 적용해야 한다.
+
+```bash
+npx wrangler d1 execute wavetracer --local  --file=./schema.sql
+npx wrangler d1 execute wavetracer --remote --file=./schema.sql   # 운영, 최초 1회
+```
+
+## 페이지 구성
+
+History API 기반 클라이언트 라우팅이다. 별도 서버 설정은 필요 없다 —
+`not_found_handling: "single-page-application"` 이 어떤 경로로 들어와도
+`index.html` 을 돌려주고, 그 안에서 라우터가 화면을 고른다.
+
+| 경로 | 화면 | 내용 |
+|---|---|---|
+| `/` | 홈 | 오늘의 파도(최근 본 포인트) + 최근 파도 제보 5개 |
+| `/forecast` | 파도예보 | 기존 예보 화면 전체. `?spot=&date=` 로 상태가 URL 에 담긴다 |
+| `/reports` | 파도제보 | 제보 작성 폼 + 최신 30개 목록 |
+
+상단 `WaveTracer` 로고를 누르면 홈으로 돌아온다.
+
+예보 컨트롤(포인트 선택·날짜 칩)은 렌더링 문자열로 옮기지 않고 정적 HTML 에
+그대로 두고 라우트에 따라 `hidden` 으로만 토글한다. 차트 툴팁·표 연동처럼
+이미 잘 도는 로직을 건드리지 않으려는 의도적 선택이다.
+
+옛 공유 링크(`/?spot=...&date=...`) 는 `/forecast` 로 넘겨준다.
+
 ## 커스텀 도메인
 
 Cloudflare 대시보드 → Workers & Pages → `wavetracer` → Settings → Domains & Routes
@@ -47,18 +74,21 @@ Cloudflare 대시보드 → Workers & Pages → `wavetracer` → Settings → Do
 ## 구조
 
 ```
-public/index.html   앱 전체 (HTML + CSS + JS, 의존성 0)
-src/worker.js        /api/advisory 프록시 — 그 외 요청은 그대로 정적 서빙
+public/index.html    앱 전체 — 3개 화면 + 라우터 (HTML + CSS + JS, 의존성 0)
+src/worker.js        /api/advisory 프록시 + /api/reports 게시판 API
+schema.sql           파도 제보 게시판 D1 스키마
 wrangler.jsonc       Cloudflare 배포 설정
 .dev.vars.example    로컬 시크릿 템플릿 (실제 값은 .dev.vars, 커밋 안 됨)
 .claude/launch.json  로컬 dev 서버 실행 설정
 ```
 
-파도 예보 화면 자체는 여전히 파일 하나(`public/index.html`)에 몰아넣었다 —
-번들러도 프레임워크도 없다. `src/worker.js` 는 풍랑특보 프록시를 위해서만
-존재하고, `wrangler.jsonc` 의 `assets.run_worker_first: ["/api/*"]` 덕분에
-`/api/*` 이외의 모든 요청(HTML, 이미지 등)은 지금까지처럼 이 워커를 거치지
-않고 바로 서빙된다 — 정적 에셋의 속도·과금 이점을 그대로 유지한다.
+화면 3개가 전부 파일 하나(`public/index.html`)에 들어 있다 — 번들러도
+프레임워크도 없고 빌드 스텝도 없다. `src/worker.js` 는 서버가 꼭 필요한 두 가지
+(인증키를 숨겨야 하는 풍랑특보 프록시, 저장소가 필요한 제보 게시판)만 맡는다.
+
+`wrangler.jsonc` 의 `assets.run_worker_first: ["/api/*"]` 덕분에 `/api/*` 이외의
+모든 요청(HTML, 이미지 등)은 이 워커를 거치지 않고 바로 서빙된다 — 정적 에셋의
+속도·과금 이점을 그대로 유지한다.
 
 ## 데이터
 
@@ -153,7 +183,44 @@ wrangler.jsonc       Cloudflare 배포 설정
 
 ## 공유 링크
 
-상태가 URL 에 담긴다 — `?spot=jukdo&date=2026-09-10`.
+예보 화면의 상태가 URL 에 담긴다 — `/forecast?spot=jukdo&date=2026-09-10`.
+
+## 파도 제보 게시판
+
+D1(`wavetracer`) 의 `reports` 테이블 하나를 쓴다. 스키마는 `schema.sql`.
+
+| 엔드포인트 | 동작 |
+|---|---|
+| `GET /api/reports?limit=1..50` | 최신순 목록. 기본 5개 |
+| `POST /api/reports` | 제보 등록 |
+
+로그인이 없는 공개 게시판이라 서버에서 다음을 강제한다.
+
+- 포인트는 알려진 13개 id 중 하나여야 한다 (`ZONE_MAP` 의 키를 그대로 재사용 —
+  스팟 목록을 두 곳에 두지 않는다)
+- 닉네임 1~20자, 내용 1~500자, 별점 1~5 정수, 체감 파고 0~15m
+- 같은 클라이언트 기준 10분에 5건까지
+
+레이트리밋용 식별자는 **IP 를 그대로 저장하지 않고** `IP + 고정 salt` 의
+SHA-256 해시만 남긴다. 같은 IP 면 같은 해시가 되므로 완전한 익명화는 아니지만,
+원본 IP 를 쌓아두는 것보다 나은 절충안이다.
+
+D1 바인딩이 없으면 `GET` 은 `{ ready:false, reports:[] }`, `POST` 는 503 을
+돌려준다 — 게시판은 부가 기능이라 저장소가 죽어도 예보 화면은 계속 떠야 한다.
+
+### XSS
+
+제보 본문·닉네임은 그대로 화면에 그려지는 사용자 입력이다. 저장은 원문 그대로
+하고 **출력 시점에** `esc()` 로 이스케이프한다(자르기 → 이스케이프 순서를 지켜야
+`&amp;` 같은 엔티티가 중간에 잘리지 않는다). 서버 오류 메시지는 `innerHTML` 이
+아니라 `textContent` 로 넣는다.
+
+`<img src=x onerror=alert(1)>` 를 실제로 등록해 스크립트가 실행되지 않고 문자로만
+표시되는 것을 확인했다. 이 경로를 고칠 때마다 같은 확인을 다시 할 것.
+
+### 아직 없는 것
+
+수정·삭제·신고·차단이 없다. 운영상 필요해지면 관리 수단부터 붙여야 한다.
 
 ## 알아둘 것
 

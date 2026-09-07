@@ -1782,6 +1782,53 @@ const CHAT_CHIPS = [
 ];
 const chatState = { open: false, busy: false, history: [] };
 
+/* 7일치 예보. "이번주 수요일 어디가 좋아?" 같은 질문에 답하려면 현재 시점만으로는
+   근거가 없다. 응답이 100KB 안팎이라 홈에서 미리 받지 않고 챗봇을 처음 열 때만
+   가져온다 — 예보만 보고 가는 방문자는 이 비용을 내지 않는다.
+
+   서버는 원시 시간별 값만 주고 점수는 여기서 낸다. 기존 summarize() 를 그대로
+   써서, 챗봇이 말하는 날짜별 점수와 예보 화면의 점수가 같은 계산에서 나온다. */
+let dailyPromise = null;
+function loadDailyForecast(){
+  if (!dailyPromise){
+    dailyPromise = fetch("/api/forecast")
+      .then(r => r.json())
+      .catch(() => ({ ready: false, days: [] }));
+  }
+  return dailyPromise;
+}
+
+/** spot_daily 의 자리 기반 배열을 시간대 객체로 펼친다.
+    [시각, 파고, 주기, 너울고, 너울주기, 풍속, 풍향] 순서는 worker 와 맞춰야 한다. */
+function expandDailyHours(rows, spot){
+  return rows.map(r => {
+    const h = {
+      hour: r[0], waveH: r[1], waveP: r[2], swellH: r[3], swellP: r[4],
+      windSpd: r[5], windDir: r[6],
+    };
+    h.off = offshoreness(h.windDir, spot.facing);
+    h.scores = scoreHourAllLevels(h);
+    return h;
+  });
+}
+
+/** 챗봇에 넘길 날짜별 점수표. 스팟 × 날짜마다 하루 평균 점수를 낸다. */
+async function chatDailySnapshot(){
+  try {
+    const data = await loadDailyForecast();
+    if (!data.ready || !data.days.length) return [];
+    const out = [];
+    for (const d of data.days){
+      const spot = SPOTS.find(s => s.id === d.spotId);
+      if (!spot || !Array.isArray(d.hourly)) continue;
+      const sm = summarize(expandDailyHours(d.hourly, spot));
+      if (!sm) continue;
+      out.push({ id: spot.id, name: spot.name, date: d.date, score: sm.avg });
+    }
+    return out;
+  } catch (_){ return []; }
+}
+
 /** 챗봇에 넘길 현재 컨디션 요약. 지도와 같은 /api/conditions 를 재사용하므로
     추가 요청이 없고, 지도에 보이는 점수와 챗봇이 말하는 점수가 항상 일치한다. */
 async function chatSpotSnapshot(){
@@ -1845,7 +1892,7 @@ async function chatSend(text){
     '<span class="chat-typing"><i></i><i></i><i></i></span></div>');
 
   try {
-    const spots = await chatSpotSnapshot();
+    const [spots, daily] = await Promise.all([chatSpotSnapshot(), chatDailySnapshot()]);
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -1853,6 +1900,7 @@ async function chatSend(text){
         messages: chatState.history.slice(-8),
         level: LEVELS[state.level].label,
         spots: spots,
+        daily: daily,
       }),
     });
     const j = await res.json().catch(() => ({}));

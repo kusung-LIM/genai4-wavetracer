@@ -300,6 +300,32 @@ function conditionsBlock(spotScores, level){
   return `[현재 컨디션 · ${level} 기준 · 이 앱이 계산한 점수]\n` + lines.join("\n");
 }
 
+const KST_WEEKDAY = ["일", "월", "화", "수", "목", "금", "토"];
+
+/** 날짜별 예보 표. "이번주 수요일 어디가 좋아?" 같은 질문에 답하려면
+    모델이 날짜와 요일을 같이 봐야 해서, 요일까지 붙여 넘긴다. */
+function forecastBlock(daily, level){
+  if (!Array.isArray(daily) || !daily.length) return "";
+  const byDate = new Map();
+  for (const d of daily){
+    if (!d || typeof d.date !== "string" || !SPOTS[d.id]) continue;
+    if (!Number.isFinite(d.score)) continue;
+    if (!byDate.has(d.date)) byDate.set(d.date, []);
+    byDate.get(d.date).push(d);
+  }
+  if (!byDate.size) return "";
+
+  const blocks = [...byDate.entries()].sort((a, b) => a[0] < b[0] ? -1 : 1).map(([date, rows]) => {
+    const wd = KST_WEEKDAY[new Date(date + "T00:00:00Z").getUTCDay()];
+    // 날짜마다 상위 5곳만 넣는다 — 13곳 × 7일을 다 넣으면 프롬프트가 과하게 커진다.
+    const top = rows.sort((a, b) => b.score - a.score).slice(0, 5)
+      .map(r => `${typeof r.name === "string" ? r.name.slice(0, 20) : r.id} ${Math.round(r.score)}점`)
+      .join(", ");
+    return `- ${date}(${wd}): ${top}`;
+  });
+  return `[날짜별 예보 · ${level} 기준 · 점수 높은 순 상위 5곳]\n` + blocks.join("\n");
+}
+
 async function handleChat(request, env, ctx){
   if (request.method !== "POST"){
     return json({ error: "method_not_allowed", message: "허용되지 않은 메서드입니다." }, 405, { allow: "POST" });
@@ -351,6 +377,11 @@ async function handleChat(request, env, ctx){
         `[문서 ${i + 1}] ${d.title}\n${d.body}\n(출처: ${d.source_name})`).join("\n\n")
     : "";
   const condBlock = conditionsBlock(raw.spots, levelLabel);
+  const fcBlock = forecastBlock(raw.daily, levelLabel);
+
+  // 모델이 "이번주 수요일"을 날짜로 환산하려면 오늘이 며칠 무슨 요일인지 알아야 한다.
+  const todayKST = nowHourKST().slice(0, 10);
+  const todayBlock = `[오늘] ${todayKST}(${KST_WEEKDAY[new Date(todayKST + "T00:00:00Z").getUTCDay()]})`;
 
   // 인용 규칙은 안전 자료가 실제로 붙었을 때만 넣는다. 조건 없이 넣어두면
   // 자료가 하나도 없는 추천 질문에도 모델이 [문서 1] 을 붙여서, 가리킬 대상이
@@ -363,13 +394,16 @@ async function handleChat(request, env, ctx){
     "너는 국내 서핑 예보 앱 WaveTracer 의 안내 도우미다. 한국어로 친근하되 간결하게 답한다(5문장 이내).\n" +
     "규칙:\n" +
     "1. [안전 자료] 에 있는 내용만 근거로 규정·법령·안전 수칙을 말한다. 자료에 없으면 모른다고 말하고 기상청·해양경찰청 확인을 권한다. 절대 지어내지 않는다.\n" +
-    "2. [현재 컨디션] 의 점수는 이 앱이 계산한 값이다. 그대로 인용하고 임의로 바꾸거나 새로 매기지 않는다. " +
-    "포인트 추천은 [현재 컨디션] 만으로 답한다 — 안전 자료가 없어도 추천은 얼마든지 가능하니, 자료가 없다는 이유로 추천을 거절하지 마라. 점수가 높은 순으로 답한다.\n" +
+    "2. [현재 컨디션] 과 [날짜별 예보] 의 점수는 이 앱이 계산한 값이다. 그대로 인용하고 임의로 바꾸거나 새로 매기지 않는다. " +
+    "포인트 추천은 이 두 자료만으로 답한다 — 안전 자료가 없어도 추천은 얼마든지 가능하니, 자료가 없다는 이유로 추천을 거절하지 마라. 점수가 높은 순으로 답한다.\n" +
+    "2-1. 오늘·지금을 물으면 [현재 컨디션], 특정 날짜나 요일(예: 이번주 수요일, 내일, 주말)을 물으면 [날짜별 예보] 를 쓴다. " +
+    "[오늘] 날짜를 기준으로 요일을 날짜로 환산하고, 답할 때 어느 날짜인지 함께 밝힌다. " +
+    "[날짜별 예보] 범위 밖(7일 이후 등)을 물으면 그 기간 예보는 없다고 짧게 말한다.\n" +
     "3. 서핑·해양 안전과 무관한 질문에는 답할 수 없다고 짧게 말한다.\n" +
     "4. 안전·규정을 다뤘다면 법률 자문이 아닌 참고 정보임을 한 문장으로 덧붙인다.\n" +
     citeRule;
 
-  const grounding = [condBlock, docBlock].filter(Boolean).join("\n\n");
+  const grounding = [todayBlock, condBlock, fcBlock, docBlock].filter(Boolean).join("\n\n");
   const messages = [{ role: "system", content: systemPrompt }];
   // 직전 대화는 그대로 넘겨 다회차 맥락을 유지하고, 자료는 마지막 질문에만 붙인다.
   history.slice(0, -1).forEach(m => messages.push(m));
@@ -441,11 +475,12 @@ async function refreshConditions(env){
   const airLat = ids.map(id => SPOTS[id].lat.toFixed(4)).join(",");
   const airLon = ids.map(id => SPOTS[id].lon.toFixed(4)).join(",");
 
+  // 7일치를 받는다 — 현재 상황(지도)뿐 아니라 챗봇의 미래 날짜 질문에도 답해야 한다.
   const marineUrl = "https://marine-api.open-meteo.com/v1/marine?latitude=" + seaLat +
-    "&longitude=" + seaLon + "&hourly=" + MARINE_FIELDS + "&timezone=Asia%2FSeoul&forecast_days=1";
+    "&longitude=" + seaLon + "&hourly=" + MARINE_FIELDS + "&timezone=Asia%2FSeoul&forecast_days=7";
   const airUrl = "https://api.open-meteo.com/v1/forecast?latitude=" + airLat +
     "&longitude=" + airLon + "&hourly=" + AIR_FIELDS +
-    "&timezone=Asia%2FSeoul&forecast_days=1&wind_speed_unit=ms";
+    "&timezone=Asia%2FSeoul&forecast_days=7&wind_speed_unit=ms";
 
   const [marine, air] = await Promise.all([getJSON(marineUrl), getJSON(airUrl)]);
   // 좌표를 하나만 넣으면 배열이 아니라 객체가 오므로 방어적으로 감싼다.
@@ -454,7 +489,8 @@ async function refreshConditions(env){
 
   const target = nowHourKST();
   const now = new Date().toISOString();
-  const writes = [];
+  const writes = [];       // spot_conditions (현재 정시)
+  const dailyWrites = [];  // spot_daily (7일치, 날짜별로 접어서)
 
   ids.forEach((id, n) => {
     const m = M[n], a = A[n];
@@ -480,10 +516,38 @@ async function refreshConditions(env){
       j < 0 ? null : pickAt(a.hourly.wind_direction_10m, j),
       pickAt(m.hourly.sea_surface_temperature, i)
     ));
+
+    // 같은 응답에서 날짜별로 접어 spot_daily 에 넣는다. 시간별 행을 만들면
+    // 하루 20만 행이라 D1 Free 한도를 넘기므로, 하루치를 배열 하나로 접는다.
+    const byDate = new Map();
+    m.hourly.time.forEach((t, k) => {
+      const date = t.slice(0, 10);
+      const jk = (a && a.hourly) ? a.hourly.time.indexOf(t) : -1;
+      if (!byDate.has(date)) byDate.set(date, []);
+      byDate.get(date).push([
+        +t.slice(11, 13),
+        pickAt(m.hourly.wave_height, k),
+        pickAt(m.hourly.wave_period, k),
+        pickAt(m.hourly.swell_wave_height, k),
+        pickAt(m.hourly.swell_wave_period, k),
+        jk < 0 ? null : pickAt(a.hourly.wind_speed_10m, jk),
+        jk < 0 ? null : pickAt(a.hourly.wind_direction_10m, jk),
+      ]);
+    });
+    for (const [date, hours] of byDate){
+      dailyWrites.push(env.DB.prepare(
+        "INSERT INTO spot_daily (spot_id, date, hourly, updated_at) VALUES (?1,?2,?3,?4)" +
+        " ON CONFLICT(spot_id, date) DO UPDATE SET hourly=excluded.hourly, updated_at=excluded.updated_at"
+      ).bind(id, date, JSON.stringify(hours), now));
+    }
   });
 
   if (writes.length) await env.DB.batch(writes);
-  return { ok: true, spots: writes.length, observedAt: target };
+  if (dailyWrites.length) await env.DB.batch(dailyWrites);
+  // 지난 날짜는 쌓아둘 이유가 없다. 안 지우면 매일 13행씩 늘어난다.
+  await env.DB.prepare("DELETE FROM spot_daily WHERE date < ?1").bind(target.slice(0, 10)).run();
+
+  return { ok: true, spots: writes.length, days: dailyWrites.length, observedAt: target };
 }
 
 async function handleConditions(request, env){
@@ -511,6 +575,28 @@ async function handleConditions(request, env){
   }
 }
 
+/** 7일치 시간별 예보. 챗봇이 미래 날짜 질문에 답하려면 필요하다.
+    응답이 100KB 안팎이라 프론트는 챗봇을 처음 열 때만(지연 로딩) 부른다 —
+    예보만 보고 가는 방문자는 이 비용을 내지 않는다. */
+async function handleForecast(request, env){
+  if (request.method !== "GET"){
+    return json({ error: "method_not_allowed", message: "허용되지 않은 메서드입니다." }, 405, { allow: "GET" });
+  }
+  if (!env.DB) return json({ ready: false, days: [] });
+
+  try {
+    const { results } = await env.DB.prepare(
+      "SELECT spot_id, date, hourly FROM spot_daily ORDER BY date, spot_id"
+    ).all();
+    const days = (results || []).map(r => ({
+      spotId: r.spot_id, date: r.date, hourly: JSON.parse(r.hourly),
+    }));
+    return json({ ready: days.length > 0, days }, 200, { "cache-control": "public, max-age=600" });
+  } catch (_){
+    return json({ ready: false, days: [] });
+  }
+}
+
 function json(data, status = 200, extraHeaders){
   return new Response(JSON.stringify(data), {
     status,
@@ -529,6 +615,7 @@ export default {
     if (url.pathname === "/api/reports") return handleReports(request, env, ctx);
     if (url.pathname === "/api/chat") return handleChat(request, env, ctx);
     if (url.pathname === "/api/conditions") return handleConditions(request, env);
+    if (url.pathname === "/api/forecast") return handleForecast(request, env);
 
     // run_worker_first 가 "/api/*" 만 여기로 보내므로 원칙적으로 도달하지 않지만,
     // 방어적으로 정적 자산 폴백을 남겨둔다.

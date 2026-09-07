@@ -75,3 +75,20 @@ CREATE TABLE IF NOT EXISTS spot_conditions (
   swell_height REAL, swell_period REAL, swell_dir REAL,
   wind_speed REAL, wind_dir REAL, sea_temp REAL
 );
+
+-- 챗봇이 미래 날짜("이번주 수요일 어디가 좋아?")에 답하려면 7일치가 필요하다.
+-- 시간별로 한 행씩 넣으면 13스팟 × 168시간 = 2,184행이고, 15분마다 다시 쓰면
+-- 하루 20만 행이라 D1 Free 한도(10만 행/일)를 넘긴다. 그래서 "스팟 × 날짜"로
+-- 한 행만 두고 그날 24시간을 JSON 배열로 접어 넣는다 — 91행 × 96회 = 8,736행/일.
+--
+-- hourly 는 자리 기반 배열이라 키 이름이 반복되지 않는다:
+--   [[시각, 파고, 주기, 너울고, 너울주기, 풍속, 풍향], ...]
+-- 프론트가 이걸 펼쳐 기존 summarize() 를 그대로 돌리므로, 챗봇이 말하는 점수와
+-- 예보 화면에 뜨는 점수가 같은 계산에서 나온다.
+CREATE TABLE IF NOT EXISTS spot_daily (
+  spot_id TEXT NOT NULL,
+  date TEXT NOT NULL,
+  hourly TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (spot_id, date)
+);

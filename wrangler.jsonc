@@ -10,11 +10,17 @@
     // /api/* 요청만 워커로 보내고, 그 외 정적 파일은 지금처럼 워커를 거치지 않고 바로 서빙된다.
     "run_worker_first": ["/api/*"]
   },
-  // 파도 제보(/api/reports) 저장용 D1 데이터베이스.
+  // 파도 제보(/api/reports)와 안전·규정 Q&A(/api/safety) 저장용 D1 데이터베이스.
   // schema.sql 을 로컬/원격에 각각 적용해야 실제로 쓸 수 있다 (README 참고).
   "d1_databases": [
     { "binding": "DB", "database_name": "wavetracer", "database_id": "ebe8873b-639d-43aa-ab8f-b5ed0e2e1919" }
   ],
+  // 안전·규정 Q&A(/api/safety)의 답변 생성에 쓴다. D1 FTS5로 관련 문서를 먼저 찾고,
+  // 그 발췌만 근거로 넘겨 답하게 한다 — 모델이 코퍼스 밖 내용을 지어내지 못하게 막는
+  // 구조다. Workers AI는 로컬 개발에서도 실제 계정에 소액 과금된다(문서에 명시).
+  "ai": {
+    "binding": "AI"
+  },
   "observability": {
     "enabled": true
   }

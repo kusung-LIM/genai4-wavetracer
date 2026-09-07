@@ -15,3 +15,47 @@ CREATE TABLE IF NOT EXISTS reports (
   ip_hash TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_reports_created ON reports(created_at DESC);
+
+-- 안전·규정 Q&A(/api/safety) 코퍼스.
+-- 벡터 임베딩 없이 D1 자체 FTS5 전문검색만 쓴다 — 문서가 15~30개 규모라 트라이그램
+-- 토크나이저면 한국어 형태소 분석 없이도 충분히 매칭된다(코드코드는 최소 3글자
+-- 연속 매치가 필요). 문서가 수백 개 이상으로 늘면 그때 임베딩 기반 검색으로
+-- 옮기는 게 맞다.
+CREATE TABLE IF NOT EXISTS safety_docs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  category TEXT NOT NULL,
+  body TEXT NOT NULL,
+  source_name TEXT NOT NULL,
+  source_url TEXT,
+  updated_at TEXT NOT NULL
+);
+
+-- external content 테이블 방식: 본문은 safety_docs 에만 두고, FTS5 는 색인만 가진다.
+-- content_rowid 를 safety_docs.id(=rowid) 에 맞춰 트리거로 동기화한다.
+CREATE VIRTUAL TABLE IF NOT EXISTS safety_docs_fts USING fts5(
+  title, body,
+  content='safety_docs', content_rowid='id',
+  tokenize='trigram'
+);
+
+CREATE TRIGGER IF NOT EXISTS safety_docs_ai AFTER INSERT ON safety_docs BEGIN
+  INSERT INTO safety_docs_fts(rowid, title, body) VALUES (new.id, new.title, new.body);
+END;
+CREATE TRIGGER IF NOT EXISTS safety_docs_ad AFTER DELETE ON safety_docs BEGIN
+  INSERT INTO safety_docs_fts(safety_docs_fts, rowid, title, body) VALUES ('delete', old.id, old.title, old.body);
+END;
+CREATE TRIGGER IF NOT EXISTS safety_docs_au AFTER UPDATE ON safety_docs BEGIN
+  INSERT INTO safety_docs_fts(safety_docs_fts, rowid, title, body) VALUES ('delete', old.id, old.title, old.body);
+  INSERT INTO safety_docs_fts(rowid, title, body) VALUES (new.id, new.title, new.body);
+END;
+
+-- /api/safety 레이트리밋 전용 로그. reports.ip_hash 와 같은 이유로 원본 IP 는 두지
+-- 않는다. 콘텐츠가 아니라 카운터라 오래된 행은 조회 시점에 그때그때 지운다
+-- (src/worker.js 의 pruneSafetyAsks).
+CREATE TABLE IF NOT EXISTS safety_asks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ip_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_safety_asks_hash_time ON safety_asks(ip_hash, created_at);

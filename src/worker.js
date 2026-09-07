@@ -171,6 +171,169 @@ async function handleReportsPost(request, env){
   }
 }
 
+/* ---------- 안전·규정 Q&A (/api/safety) ----------
+   벡터 임베딩 없이 D1 FTS5(trigram) + LIKE 로 관련 문서를 먼저 찾고, 그 발췌만
+   근거로 LLM 에 넘겨 답하게 한다 — 모델이 코퍼스 밖 내용을 지어내지 못하게 막는
+   구조다. 문서가 없으면(관련 자료를 못 찾으면) LLM 을 아예 호출하지 않는다 —
+   비용 절감과 "근거 없이 지어내는 답변" 방지를 동시에 노린다.
+   (검색 세부 로직과 FTS5+LIKE 를 같이 쓰는 이유는 searchSafetyDocs 참고) */
+const SAFETY_MODEL = "@cf/qwen/qwen3-30b-a3b-fp8"; // 다국어·한국어 성능 확인된 Cloudflare 호스팅 모델
+const SAFETY_SALT = "wavetracer-safety-v1-salt"; // reports 와 해시 공간을 분리하기 위한 별도 salt
+const SAFETY_RATE_LIMIT_MAX = 15;
+const SAFETY_RATE_LIMIT_WINDOW_MIN = 10;
+const SAFETY_TOP_K = 5;
+
+// 한국어는 조사가 단어 끝에 그대로 붙어("풍랑주의보에는") FTS5 트라이그램의
+// 부분문자열 매칭을 깨뜨리기 쉽다. 형태소 분석기 없이 가장 흔한 조사만 잘라내는
+// 얕은 스테밍이다 — 완벽하지 않지만, 15~30개 규모 코퍼스에서 재현율을 크게
+// 끌어올린다. 긴 조사를 먼저 시도해야 짧은 조사가 잘못 걸리는 걸 막는다.
+const JOSA = ["으로부터", "이라고는", "에서는", "에게서", "한테서", "이라고", "으로는",
+  "에는", "으로", "이랑", "하고", "이나", "은", "는", "이", "가", "을", "를",
+  "의", "에", "와", "과", "도", "만", "까지", "부터", "보다", "처럼", "마다", "라"]
+  .sort((a, b) => b.length - a.length);
+
+function stripJosa(word){
+  for (const j of JOSA){
+    if (word.length - j.length >= 2 && word.endsWith(j)) return word.slice(0, -j.length);
+  }
+  return word;
+}
+
+const SAFETY_STOPWORDS = new Set([
+  "그리고", "그런데", "그러면", "어떻게", "무엇", "뭔가", "뭐", "하나요", "되나요",
+  "인가요", "있나요", "합니까", "입니까", "해야", "해야하나요", "알려줘", "알려주세요",
+  "궁금해요", "좀", "혹시", "만약", "때는", "경우", "대해", "대한", "관련", "입니다", "합니다"
+]);
+
+const ftsQuote = s => '"' + s.replace(/"/g, '""') + '"';
+
+function extractTerms(question){
+  const words = question.replace(/[?!.,~]/g, " ").split(/\s+/).map(s => s.trim()).filter(Boolean);
+  const terms = new Set();
+  for (const w of words){
+    if (w.length < 2 || SAFETY_STOPWORDS.has(w)) continue;
+    terms.add(w);
+    const stem = stripJosa(w);
+    if (stem.length >= 2 && !SAFETY_STOPWORDS.has(stem)) terms.add(stem);
+  }
+  return terms;
+}
+
+/** 코퍼스에서 질문과 관련된 문서를 찾는다.
+    FTS5 트라이그램은 3글자 미만 용어를 원천적으로 매칭할 수 없다 — 트라이그램
+    자체가 연속 3글자 단위라, "신고"·"번호"·"특보"처럼 흔한 2음절 한국어 명사는
+    코퍼스에 그대로 있어도 걸리지 않는다(직접 재현해서 확인했다). 그래서 2글자
+    용어는 FTS 대신 LIKE 전체 스캔으로 따로 찾아 합친다 — 코퍼스가 16개 문서
+    수준이라 스캔 비용은 무시할 만하다. 코퍼스가 수백 개로 늘면 이 절충은
+    다시 봐야 한다. */
+async function searchSafetyDocs(env, question){
+  const terms = extractTerms(question);
+  if (!terms.size) return [];
+
+  const longTerms = [...terms].filter(t => t.length >= 3);
+  const shortTerms = [...terms].filter(t => t.length < 3);
+  const docMap = new Map();
+
+  if (longTerms.length){
+    try {
+      const ftsQuery = longTerms.map(ftsQuote).join(" OR ");
+      const { results } = await env.DB.prepare(
+        "SELECT s.id, s.title, s.category, s.body, s.source_name, s.source_url " +
+        "FROM safety_docs_fts f JOIN safety_docs s ON s.id = f.rowid " +
+        "WHERE safety_docs_fts MATCH ? ORDER BY rank LIMIT ?"
+      ).bind(ftsQuery, SAFETY_TOP_K * 2).all();
+      for (const r of (results || [])) docMap.set(r.id, r);
+    } catch (_){ /* FTS 실패는 아래 LIKE 결과만으로도 응답 가능하니 무시한다 */ }
+  }
+
+  if (shortTerms.length){
+    try {
+      const conds = shortTerms.map(() => "(title LIKE ? OR body LIKE ?)").join(" OR ");
+      const binds = [];
+      for (const t of shortTerms) binds.push(`%${t}%`, `%${t}%`);
+      binds.push(SAFETY_TOP_K * 2);
+      const { results } = await env.DB.prepare(
+        `SELECT id, title, category, body, source_name, source_url FROM safety_docs WHERE ${conds} LIMIT ?`
+      ).bind(...binds).all();
+      for (const r of (results || [])) if (!docMap.has(r.id)) docMap.set(r.id, r);
+    } catch (_){ /* 마찬가지로 위 FTS 결과만으로 응답 가능하니 무시한다 */ }
+  }
+
+  return [...docMap.values()].slice(0, SAFETY_TOP_K);
+}
+
+async function handleSafety(request, env, ctx){
+  if (request.method !== "GET"){
+    return json({ error: "method_not_allowed", message: "허용되지 않은 메서드입니다." }, 405, { allow: "GET" });
+  }
+  if (!env.DB || !env.AI){
+    return json({ ready: false, reason: "not_configured" });
+  }
+
+  const url = new URL(request.url);
+  const question = (url.searchParams.get("q") || "").trim();
+  if (question.length < 2 || question.length > 200){
+    return json({ error: "validation", message: "질문은 2~200자로 입력해주세요." }, 400);
+  }
+
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+  const ipHash = await sha256Hex(ip + SAFETY_SALT);
+  const windowStart = new Date(Date.now() - SAFETY_RATE_LIMIT_WINDOW_MIN * 60 * 1000).toISOString();
+
+  try {
+    // 카운터 성격이라 오래된 행은 조회 시점에 그때그때 지운다 — 별도 정리 작업 없이도
+    // 테이블이 무한히 커지지 않는다.
+    await env.DB.prepare("DELETE FROM safety_asks WHERE created_at < ?1").bind(windowStart).run();
+    const { results: recent } = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM safety_asks WHERE ip_hash = ?1 AND created_at > ?2"
+    ).bind(ipHash, windowStart).all();
+    if (((recent && recent[0] && recent[0].n) || 0) >= SAFETY_RATE_LIMIT_MAX){
+      return json({ error: "rate_limited", message: "짧은 시간에 너무 많은 질문이 들어왔습니다. 잠시 후 다시 시도해주세요." }, 429);
+    }
+    ctx.waitUntil(env.DB.prepare(
+      "INSERT INTO safety_asks (ip_hash, created_at) VALUES (?1, ?2)"
+    ).bind(ipHash, new Date().toISOString()).run());
+  } catch (_){
+    // 레이트리밋 집계 실패는 질문 응답 자체를 막을 이유가 아니다 — 무시하고 계속한다.
+  }
+
+  const docs = await searchSafetyDocs(env, question);
+
+  if (!docs.length){
+    return json({
+      ready: true, question,
+      answer: "관련된 안전·규정 정보를 찾지 못했습니다. 질문을 조금 다르게 표현해보시거나, 기상청·해양경찰청 공식 사이트를 직접 확인해주세요.",
+      sources: [],
+    });
+  }
+
+  const context = docs.map((d, i) =>
+    `[문서 ${i + 1}] ${d.title}\n${d.body}\n(출처: ${d.source_name})`
+  ).join("\n\n");
+
+  const systemPrompt =
+    "너는 한국 서핑/해양 안전·규정 안내 도우미다. 아래 [문서]들에 있는 내용만 근거로 한국어로 답한다. " +
+    "문서에 없는 내용은 절대 추측하거나 지어내지 말고, 그런 경우 모른다고 말한다. " +
+    "답변 끝에 참고한 문서 번호를 대괄호로 표시한다(예: [문서 1][문서 3]). " +
+    "이 답변은 법률 자문이 아니라 참고 정보라는 점을 짧게 덧붙인다. 3~6문장 이내로 간결하게 답한다.";
+
+  try {
+    const ai = await env.AI.run(SAFETY_MODEL, {
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: `[문서]\n${context}\n\n[질문]\n${question}` },
+      ],
+    });
+    const answer = (ai && (ai.response || ai.result)) || "답변을 생성하지 못했습니다.";
+    return json({
+      ready: true, question, answer,
+      sources: docs.map(d => ({ id: d.id, title: d.title, category: d.category, sourceName: d.source_name, sourceUrl: d.source_url })),
+    });
+  } catch (err){
+    return json({ error: "ai_error", message: "답변 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요." }, 502);
+  }
+}
+
 function json(data, status = 200, extraHeaders){
   return new Response(JSON.stringify(data), {
     status,
@@ -187,6 +350,7 @@ export default {
 
     if (url.pathname === "/api/advisory") return handleAdvisory(request, env, ctx);
     if (url.pathname === "/api/reports") return handleReports(request, env, ctx);
+    if (url.pathname === "/api/safety") return handleSafety(request, env, ctx);
 
     // run_worker_first 가 "/api/*" 만 여기로 보내므로 원칙적으로 도달하지 않지만,
     // 방어적으로 정적 자산 폴백을 남겨둔다.

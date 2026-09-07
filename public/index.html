@@ -276,6 +276,38 @@ textarea#rf-body:focus{border-color:rgba(56,189,248,.6);background:var(--surface
 .rf-msg.rf-err{color:#fca5a5}
 .rf-msg.rf-ok{color:var(--r-exc)}
 
+/* ---------- 안전·규정 Q&A ---------- */
+.sf-form{margin-top:6px}
+.sf-qfld{
+  display:flex;align-items:center;gap:8px;background:var(--surface);
+  border:1px solid var(--line);border-radius:12px;padding:6px 6px 6px 14px;
+  transition:border-color .18s,background .18s;
+}
+.sf-qfld:focus-within{border-color:rgba(56,189,248,.6);background:var(--surface-2)}
+.sf-qfld input{flex:1;min-width:0}
+.sf-examples{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}
+.sf-chip{
+  background:var(--surface-2);border:1px solid var(--line);color:var(--muted);
+  font:inherit;font-size:12px;padding:6px 12px;border-radius:999px;cursor:pointer;transition:.15s;
+}
+.sf-chip:hover{border-color:var(--accent);color:var(--text)}
+.sf-msg{font-size:12.5px;min-height:16px;margin-top:8px}
+.sf-msg.rf-err{color:#fca5a5}
+.sf-answer{margin-top:16px;padding-top:16px;border-top:1px solid var(--line)}
+.sf-answer-q{font-size:12.5px;color:var(--dim);margin-bottom:8px}
+.sf-answer-text{font-size:14px;line-height:1.75;white-space:pre-wrap;word-break:break-word}
+.sf-sources{margin-top:14px}
+.sf-sources-label{font-size:11px;font-weight:650;color:var(--dim);letter-spacing:.06em;text-transform:uppercase;margin-bottom:7px}
+.sf-source-list{display:flex;flex-direction:column;gap:6px}
+.sf-source{
+  display:flex;align-items:baseline;gap:8px;font-size:12.5px;background:var(--surface-2);
+  border:1px solid var(--line);border-radius:8px;padding:8px 11px;
+}
+.sf-source-title{font-weight:600;color:var(--text)}
+.sf-source-title a{color:inherit;text-decoration:underline;text-decoration-color:var(--line-strong)}
+.sf-source-title a:hover{color:var(--accent);text-decoration-color:var(--accent)}
+.sf-caveat{font-size:11px;color:var(--dim);margin-top:14px}
+
 /* ---------- legend / footer ---------- */
 .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--muted);margin-top:14px;padding-top:13px;border-top:1px solid var(--line)}
 .legend span{display:flex;align-items:center;gap:5px}
@@ -311,6 +343,7 @@ footer a:hover{color:var(--accent)}
     <a href="/" class="tab" data-nav data-route="home">홈</a>
     <a href="/forecast" class="tab" data-nav data-route="forecast">파도예보</a>
     <a href="/reports" class="tab" data-nav data-route="reports">파도제보</a>
+    <a href="/safety" class="tab" data-nav data-route="safety">안전정보</a>
   </nav>
 
   <div class="controls" id="controls">
@@ -1232,16 +1265,127 @@ async function renderReportsPage(){
   }
 }
 
+/* ============================ 안전·규정 Q&A (/safety) ============================
+   /api/safety 가 D1 FTS5 로 코퍼스에서 관련 문서를 찾고 LLM(Workers AI) 으로 답을
+   생성해 돌려준다(src/worker.js). 이 페이지는 그 결과를 보여주기만 한다.
+
+   답변 텍스트는 LLM 이 생성한 문자열이라 신뢰할 수 없는 입력과 똑같이 다룬다 —
+   질문·답변·출처명 전부 esc() 를 거쳐야 innerHTML 에 들어간다. 사용자가 질문에
+   HTML 을 넣고 모델이 그걸 그대로 답변에 옮겨 적어도(프롬프트 인젝션), 최종
+   렌더링 단계에서 무해한 텍스트로만 나가게 만드는 마지막 방어선이다. */
+const SAFETY_EXAMPLES = [
+  "풍랑주의보 때 신고해야 하나요?",
+  "이안류에 휘말리면 어떻게 해야 하나요?",
+  "긴급 상황이면 어디로 신고하나요?",
+  "수온별로 웻수트는 어떻게 골라야 하나요?",
+];
+
+function renderSafetyForm(){
+  return '<div class="card">' +
+    "<h2>안전·규정 Q&A</h2>" +
+    '<div class="sub">서핑 관련 안전 수칙과 신고 절차를 물어보세요 — 공개 법령·공공기관 안내를 요약한 참고 자료입니다</div>' +
+    '<form id="safetyForm" class="sf-form" novalidate>' +
+      '<div class="sf-qfld">' +
+        '<input id="sf-q" type="text" maxlength="200" placeholder="예: 풍랑주의보 때 신고해야 하나요?" required>' +
+        '<button type="submit" id="sf-submit" class="rf-submit">질문하기</button>' +
+      "</div>" +
+      '<div id="sf-msg" class="sf-msg rf-msg" role="status" aria-live="polite"></div>' +
+    "</form>" +
+    '<div class="sf-examples">' +
+      SAFETY_EXAMPLES.map(q => '<button type="button" class="sf-chip" data-q="' + esc(q) + '">' + esc(q) + "</button>").join("") +
+    "</div>" +
+    '<div id="sf-answer"></div>' +
+  "</div>";
+}
+
+function renderSafetyAnswer(data){
+  const sourcesHtml = data.sources && data.sources.length
+    ? '<div class="sf-sources"><div class="sf-sources-label">참고 자료</div><div class="sf-source-list">' +
+        data.sources.map(s => {
+          const title = s.sourceUrl
+            ? '<a href="' + esc(s.sourceUrl) + '" target="_blank" rel="noopener">' + esc(s.title) + "</a>"
+            : esc(s.title);
+          return '<div class="sf-source"><span class="sf-source-title">' + title + "</span>" +
+            '<span class="dimc">· ' + esc(s.sourceName) + "</span></div>";
+        }).join("") +
+      "</div></div>"
+    : "";
+  return '<div class="sf-answer">' +
+    '<div class="sf-answer-q">Q. ' + esc(data.question) + "</div>" +
+    '<div class="sf-answer-text">' + esc(data.answer) + "</div>" +
+    sourcesHtml +
+    '<div class="sf-caveat">이 답변은 법률 자문이 아닌 참고 정보입니다. 출항·입수 전 기상청·해양경찰청 공식 정보를 다시 확인하세요.</div>' +
+  "</div>";
+}
+
+function wireSafetyForm(){
+  const form = $("#safetyForm"), input = $("#sf-q"), msg = $("#sf-msg"), submitBtn = $("#sf-submit");
+
+  const ask = async question => {
+    input.value = question;
+    msg.textContent = "";
+    msg.className = "sf-msg rf-msg";
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<span class="rf-spin"></span>답변 생성 중…';
+    $("#sf-answer").innerHTML = "";
+
+    try {
+      const res = await fetch("/api/safety?q=" + encodeURIComponent(question));
+      const j = await res.json().catch(() => ({}));
+      if (res.status === 200 && j && j.ready){
+        $("#sf-answer").innerHTML = renderSafetyAnswer(j);
+      } else if (res.status === 429){
+        msg.textContent = (j && j.message) || "짧은 시간에 너무 많은 질문이 들어왔습니다. 잠시 후 다시 시도해주세요.";
+        msg.className = "sf-msg rf-msg rf-err";
+      } else if (res.status === 400){
+        msg.textContent = (j && j.message) || "질문을 다시 확인해주세요.";
+        msg.className = "sf-msg rf-msg rf-err";
+      } else if (j && j.ready === false){
+        msg.textContent = "안전·규정 Q&A 기능이 아직 준비되지 않았습니다.";
+        msg.className = "sf-msg rf-msg rf-err";
+      } else {
+        msg.textContent = "답변을 가져오지 못했습니다. 잠시 후 다시 시도해주세요.";
+        msg.className = "sf-msg rf-msg rf-err";
+      }
+    } catch (e){
+      msg.textContent = "네트워크 오류로 답변을 가져오지 못했습니다.";
+      msg.className = "sf-msg rf-msg rf-err";
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = "질문하기";
+    }
+  };
+
+  form.addEventListener("submit", e => {
+    e.preventDefault();
+    const q = input.value.trim();
+    if (q.length < 2){
+      msg.textContent = "질문은 2자 이상 입력해주세요.";
+      msg.className = "sf-msg rf-msg rf-err";
+      return;
+    }
+    ask(q);
+  });
+
+  $$(".sf-chip").forEach(chip => chip.addEventListener("click", () => ask(chip.dataset.q)));
+}
+
+function renderSafetyPage(){
+  app.innerHTML = renderSafetyForm();
+  wireSafetyForm();
+}
+
 /* ============================ 라우팅 ============================
-   경로 3개: / (홈) · /forecast (파도예보) · /reports (파도제보).
+   경로 4개: / (홈) · /forecast (파도예보) · /reports (파도제보) · /safety (안전정보).
    해시 라우팅 대신 History API 를 쓴다 — wrangler.jsonc 의
-   assets.not_found_handling: "single-page-application" 덕분에 /forecast, /reports
-   를 새로고침해도(또는 직접 주소창에 쳐도) 그대로 이 index.html 이 서빙된다.
+   assets.not_found_handling: "single-page-application" 덕분에 /forecast, /reports,
+   /safety 를 새로고침해도(또는 직접 주소창에 쳐도) 그대로 이 index.html 이 서빙된다.
 ================================================================== */
 const TITLE_OF = {
   home:     "WaveTracer — 국내 서핑 파도 예보",
   forecast: "WaveTracer — 파도예보",
   reports:  "WaveTracer — 파도 제보",
+  safety:   "WaveTracer — 안전정보",
 };
 
 /** 현재 location 을 라우트 이름으로 해석.
@@ -1259,6 +1403,7 @@ function resolveRoute(){
   }
   if (path === "/forecast") return "forecast";
   if (path === "/reports") return "reports";
+  if (path === "/safety") return "safety";
   history.replaceState(null, "", "/");
   return "home";
 }
@@ -1280,6 +1425,7 @@ function renderRoute(){
     renderForecastPage();
   }
   else if (route === "reports") renderReportsPage();
+  else if (route === "safety") renderSafetyPage();
   else renderHomePage();
 }
 

@@ -299,37 +299,96 @@ textarea#rf-body:focus{border-color:rgba(56,189,248,.6);background:var(--surface
 .rf-msg.rf-err{color:#fca5a5}
 .rf-msg.rf-ok{color:var(--r-exc)}
 
-/* ---------- 안전·규정 Q&A ---------- */
-.sf-form{margin-top:6px}
-.sf-qfld{
-  display:flex;align-items:center;gap:8px;background:var(--surface);
-  border:1px solid var(--line);border-radius:12px;padding:6px 6px 6px 14px;
-  transition:border-color .18s,background .18s;
+/* ---------- AI 챗봇 ----------
+   DOM 은 하나고 여기서만 갈린다: 데스크톱은 오른쪽 고정 사이드 패널,
+   모바일(720px 이하)은 전체화면 시트. 탭을 하나 더 만들지 않은 건 예보를
+   "보면서" 물어볼 수 있어야 하기 때문이다. */
+.chat-fab{
+  position:fixed;right:20px;bottom:20px;z-index:60;
+  width:52px;height:52px;border-radius:50%;cursor:pointer;
+  background:linear-gradient(150deg,#38bdf8,#22d3ee);border:0;
+  box-shadow:0 6px 22px rgba(56,189,248,.42);transition:transform .15s, box-shadow .15s;
 }
-.sf-qfld:focus-within{border-color:rgba(56,189,248,.6);background:var(--surface-2)}
-.sf-qfld input{flex:1;min-width:0}
-.sf-examples{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}
-.sf-chip{
+.chat-fab:hover{transform:translateY(-2px);box-shadow:0 10px 28px rgba(56,189,248,.55)}
+.chat-fab:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.chat-fab-ic{font-size:22px;line-height:1}
+.chat-fab.hidden{display:none}
+
+.chat-scrim{position:fixed;inset:0;background:rgba(3,10,17,.6);z-index:65}
+
+.chat{
+  position:fixed;right:20px;bottom:20px;z-index:70;
+  width:380px;max-width:calc(100vw - 40px);height:min(620px, calc(100vh - 40px));
+  display:flex;flex-direction:column;
+  background:var(--bg2);border:1px solid var(--line-strong);border-radius:var(--radius);
+  box-shadow:0 20px 60px rgba(0,0,0,.55);overflow:hidden;
+}
+.chat-head{
+  display:flex;align-items:flex-start;gap:10px;padding:14px 16px;
+  border-bottom:1px solid var(--line);background:var(--surface);
+}
+.chat-title{font-size:14px;font-weight:730;letter-spacing:-.01em}
+.chat-sub{font-size:11.5px;color:var(--dim);margin-top:2px}
+.chat-close{
+  margin-left:auto;background:transparent;border:0;color:var(--muted);
+  font:inherit;font-size:16px;cursor:pointer;padding:2px 6px;border-radius:8px;line-height:1;
+}
+.chat-close:hover{color:var(--text);background:var(--surface-2)}
+
+.chat-log{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:12px}
+.chat-log::-webkit-scrollbar{width:6px}
+.chat-log::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:3px}
+.chat-msg{max-width:88%;font-size:13.5px;line-height:1.7;word-break:break-word;white-space:pre-wrap}
+.chat-msg.me{
+  align-self:flex-end;background:rgba(56,189,248,.16);border:1px solid rgba(56,189,248,.3);
+  border-radius:14px 14px 4px 14px;padding:9px 13px;
+}
+.chat-msg.bot{
+  align-self:flex-start;background:var(--surface);border:1px solid var(--line);
+  border-radius:14px 14px 14px 4px;padding:10px 13px;
+}
+.chat-msg.err{color:#fca5a5;border-color:rgba(252,165,165,.3)}
+.chat-typing{display:inline-flex;gap:4px;align-items:center;padding:2px 0}
+.chat-typing i{width:6px;height:6px;border-radius:50%;background:var(--muted);animation:chatDot 1.2s infinite}
+.chat-typing i:nth-child(2){animation-delay:.2s}
+.chat-typing i:nth-child(3){animation-delay:.4s}
+@keyframes chatDot{0%,60%,100%{opacity:.28}30%{opacity:1}}
+.chat-src{margin-top:9px;padding-top:8px;border-top:1px solid var(--line);font-size:11.5px}
+.chat-src-label{color:var(--dim);font-weight:650;letter-spacing:.05em;text-transform:uppercase;font-size:10px;margin-bottom:5px}
+.chat-src a{color:var(--muted);text-decoration:underline;text-decoration-color:var(--line-strong);display:block;margin-bottom:3px}
+.chat-src a:hover{color:var(--accent)}
+.chat-src span{display:block;color:var(--muted);margin-bottom:3px}
+
+.chat-chips{display:flex;gap:6px;flex-wrap:wrap;padding:0 16px 10px}
+.chat-chip{
   background:var(--surface-2);border:1px solid var(--line);color:var(--muted);
-  font:inherit;font-size:12px;padding:6px 12px;border-radius:999px;cursor:pointer;transition:.15s;
+  font:inherit;font-size:11.5px;padding:6px 11px;border-radius:999px;cursor:pointer;transition:.15s;
 }
-.sf-chip:hover{border-color:var(--accent);color:var(--text)}
-.sf-msg{font-size:12.5px;min-height:16px;margin-top:8px}
-.sf-msg.rf-err{color:#fca5a5}
-.sf-answer{margin-top:16px;padding-top:16px;border-top:1px solid var(--line)}
-.sf-answer-q{font-size:12.5px;color:var(--dim);margin-bottom:8px}
-.sf-answer-text{font-size:14px;line-height:1.75;white-space:pre-wrap;word-break:break-word}
-.sf-sources{margin-top:14px}
-.sf-sources-label{font-size:11px;font-weight:650;color:var(--dim);letter-spacing:.06em;text-transform:uppercase;margin-bottom:7px}
-.sf-source-list{display:flex;flex-direction:column;gap:6px}
-.sf-source{
-  display:flex;align-items:baseline;gap:8px;font-size:12.5px;background:var(--surface-2);
-  border:1px solid var(--line);border-radius:8px;padding:8px 11px;
+.chat-chip:hover{border-color:var(--accent);color:var(--text)}
+
+.chat-form{
+  display:flex;align-items:center;gap:8px;padding:10px 12px;
+  border-top:1px solid var(--line);background:var(--surface);
 }
-.sf-source-title{font-weight:600;color:var(--text)}
-.sf-source-title a{color:inherit;text-decoration:underline;text-decoration-color:var(--line-strong)}
-.sf-source-title a:hover{color:var(--accent);text-decoration-color:var(--accent)}
-.sf-caveat{font-size:11px;color:var(--dim);margin-top:14px}
+.chat-form input{
+  flex:1;min-width:0;background:var(--bg);border:1px solid var(--line);border-radius:999px;
+  color:var(--text);font:inherit;font-size:13.5px;padding:10px 14px;outline:none;transition:border-color .15s;
+}
+.chat-form input:focus{border-color:rgba(56,189,248,.6)}
+.chat-send{
+  flex:0 0 auto;width:36px;height:36px;border-radius:50%;cursor:pointer;
+  background:rgba(56,189,248,.18);border:1px solid var(--accent);color:var(--accent);
+  font:inherit;font-size:16px;font-weight:700;transition:.15s;
+}
+.chat-send:hover:not(:disabled){background:rgba(56,189,248,.3)}
+.chat-send:disabled{opacity:.5;cursor:default}
+
+@media (max-width:720px){
+  /* 모바일: 부분 높이 바텀시트 대신 전체화면. 출처가 붙는 긴 답변은
+     드래그 스냅 없이 전체화면으로 읽는 편이 낫다. */
+  .chat{right:0;bottom:0;left:0;top:0;width:auto;max-width:none;height:auto;border-radius:0;border:0}
+  .chat-fab{right:16px;bottom:16px}
+}
 
 /* ---------- 전국 지도 (홈) ---------- */
 .map-wrap{display:flex;gap:22px;align-items:flex-start;margin-top:4px}
@@ -431,7 +490,6 @@ footer a:hover{color:var(--accent)}
     <a href="/" class="tab" data-nav data-route="home">홈</a>
     <a href="/forecast" class="tab" data-nav data-route="forecast">파도예보</a>
     <a href="/reports" class="tab" data-nav data-route="reports">파도제보</a>
-    <a href="/safety" class="tab" data-nav data-route="safety">안전정보</a>
   </nav>
 
   <div class="controls" id="controls">
@@ -471,6 +529,29 @@ footer a:hover{color:var(--accent)}
     예보는 참고용입니다. 입수 전 반드시 현장 상황과 기상특보를 확인하세요.
   </footer>
 </div>
+
+<!-- AI 챗봇. .wrap 바깥(라우터 밖)이라 어느 화면에서든 그대로 떠 있다.
+     데스크톱은 오른쪽 사이드 패널, 모바일은 전체화면 시트로 열린다 — DOM 은
+     하나고 CSS 미디어쿼리로만 갈린다. -->
+<button type="button" id="chat-fab" class="chat-fab" aria-label="AI 도우미 열기" aria-expanded="false">
+  <span class="chat-fab-ic" aria-hidden="true">💬</span>
+</button>
+<div id="chat-scrim" class="chat-scrim" hidden></div>
+<aside id="chat" class="chat" hidden aria-label="AI 도우미" role="dialog" aria-modal="false">
+  <header class="chat-head">
+    <div>
+      <div class="chat-title">WaveTracer 도우미</div>
+      <div class="chat-sub">안전·규정, 오늘 좋은 포인트를 물어보세요</div>
+    </div>
+    <button type="button" id="chat-close" class="chat-close" aria-label="닫기">✕</button>
+  </header>
+  <div id="chat-log" class="chat-log" role="log" aria-live="polite"></div>
+  <div id="chat-chips" class="chat-chips"></div>
+  <form id="chat-form" class="chat-form" novalidate>
+    <input id="chat-input" type="text" maxlength="500" placeholder="무엇이든 물어보세요" autocomplete="off">
+    <button type="submit" id="chat-send" class="chat-send" aria-label="보내기">↑</button>
+  </form>
+</aside>
 
 <script>
 "use strict";
@@ -1683,127 +1764,170 @@ async function renderReportsPage(){
   }
 }
 
-/* ============================ 안전·규정 Q&A (/safety) ============================
-   /api/safety 가 D1 FTS5 로 코퍼스에서 관련 문서를 찾고 LLM(Workers AI) 으로 답을
-   생성해 돌려준다(src/worker.js). 이 페이지는 그 결과를 보여주기만 한다.
+/* ============================ AI 챗봇 ============================
+   /api/chat 이 안전 코퍼스(D1 FTS5)와 현재 컨디션을 근거로 붙여 답한다.
 
-   답변 텍스트는 LLM 이 생성한 문자열이라 신뢰할 수 없는 입력과 똑같이 다룬다 —
-   질문·답변·출처명 전부 esc() 를 거쳐야 innerHTML 에 들어간다. 사용자가 질문에
-   HTML 을 넣고 모델이 그걸 그대로 답변에 옮겨 적어도(프롬프트 인젝션), 최종
-   렌더링 단계에서 무해한 텍스트로만 나가게 만드는 마지막 방어선이다. */
-const SAFETY_EXAMPLES = [
+   점수는 클라이언트가 계산해서 보낸다 — 레벨별 점수 곡선을 프론트 한 곳에만
+   두려는 기존 결정을 지키기 위해서다. 워커가 따로 채점하면 곡선이 두 벌이 되고,
+   지도에 82점으로 뜨는 스팟을 챗봇이 다르게 말하는 사고가 난다.
+
+   답변은 LLM 이 만든 문자열이라 신뢰할 수 없는 입력과 똑같이 다룬다 —
+   화면에 넣기 전 반드시 esc() 를 거친다(프롬프트 인젝션으로 질문 속 HTML 이
+   답변에 그대로 옮겨질 수 있다). */
+const CHAT_CHIPS = [
+  "오늘 어디가 제일 좋아?",
   "풍랑주의보 때 신고해야 하나요?",
-  "이안류에 휘말리면 어떻게 해야 하나요?",
-  "긴급 상황이면 어디로 신고하나요?",
-  "수온별로 웻수트는 어떻게 골라야 하나요?",
+  "이안류에 휘말리면 어떻게 해요?",
+  "지금 수온에 웻수트 뭐 입어요?",
 ];
+const chatState = { open: false, busy: false, history: [] };
 
-function renderSafetyForm(){
-  return '<div class="card">' +
-    "<h2>안전·규정 Q&A</h2>" +
-    '<div class="sub">서핑 관련 안전 수칙과 신고 절차를 물어보세요 — 공개 법령·공공기관 안내를 요약한 참고 자료입니다</div>' +
-    '<form id="safetyForm" class="sf-form" novalidate>' +
-      '<div class="sf-qfld">' +
-        '<input id="sf-q" type="text" maxlength="200" placeholder="예: 풍랑주의보 때 신고해야 하나요?" required>' +
-        '<button type="submit" id="sf-submit" class="rf-submit">질문하기</button>' +
-      "</div>" +
-      '<div id="sf-msg" class="sf-msg rf-msg" role="status" aria-live="polite"></div>' +
-    "</form>" +
-    '<div class="sf-examples">' +
-      SAFETY_EXAMPLES.map(q => '<button type="button" class="sf-chip" data-q="' + esc(q) + '">' + esc(q) + "</button>").join("") +
-    "</div>" +
-    '<div id="sf-answer"></div>' +
+/** 챗봇에 넘길 현재 컨디션 요약. 지도와 같은 /api/conditions 를 재사용하므로
+    추가 요청이 없고, 지도에 보이는 점수와 챗봇이 말하는 점수가 항상 일치한다. */
+async function chatSpotSnapshot(){
+  try {
+    const data = await loadConditions();
+    if (!data.ready || !data.spots.length) return [];
+    const byId = new Map(data.spots.map(r => [r.spotId, r]));
+    return SPOTS.map(s => {
+      const row = byId.get(s.id);
+      if (!row) return null;
+      const sc = conditionToHour(row, s).scores;
+      return {
+        id: s.id, name: s.name,
+        score: sc ? sc[state.level] : null,
+        waveH: isNum(row.waveH) ? row.waveH : null,
+      };
+    }).filter(Boolean);
+  } catch (_){ return []; }
+}
+
+function chatBubble(role, html, extra){
+  return '<div class="chat-msg ' + role + (extra ? " " + extra : "") + '">' + html + "</div>";
+}
+
+function renderChatSources(sources){
+  if (!sources || !sources.length) return "";
+  return '<div class="chat-src"><div class="chat-src-label">참고 자료</div>' +
+    sources.map(s => s.sourceUrl
+      ? '<a href="' + esc(s.sourceUrl) + '" target="_blank" rel="noopener">' + esc(s.title) + "</a>"
+      : "<span>" + esc(s.title) + "</span>").join("") +
   "</div>";
 }
 
-function renderSafetyAnswer(data){
-  const sourcesHtml = data.sources && data.sources.length
-    ? '<div class="sf-sources"><div class="sf-sources-label">참고 자료</div><div class="sf-source-list">' +
-        data.sources.map(s => {
-          const title = s.sourceUrl
-            ? '<a href="' + esc(s.sourceUrl) + '" target="_blank" rel="noopener">' + esc(s.title) + "</a>"
-            : esc(s.title);
-          return '<div class="sf-source"><span class="sf-source-title">' + title + "</span>" +
-            '<span class="dimc">· ' + esc(s.sourceName) + "</span></div>";
-        }).join("") +
-      "</div></div>"
-    : "";
-  return '<div class="sf-answer">' +
-    '<div class="sf-answer-q">Q. ' + esc(data.question) + "</div>" +
-    '<div class="sf-answer-text">' + esc(data.answer) + "</div>" +
-    sourcesHtml +
-    '<div class="sf-caveat">이 답변은 법률 자문이 아닌 참고 정보입니다. 출항·입수 전 기상청·해양경찰청 공식 정보를 다시 확인하세요.</div>' +
-  "</div>";
+function chatAppend(html){
+  const log = $("#chat-log");
+  log.insertAdjacentHTML("beforeend", html);
+  log.scrollTop = log.scrollHeight;
 }
 
-function wireSafetyForm(){
-  const form = $("#safetyForm"), input = $("#sf-q"), msg = $("#sf-msg"), submitBtn = $("#sf-submit");
+function renderChatChips(){
+  const el = $("#chat-chips");
+  // 대화가 시작되면 추천 프롬프트는 감춘다 — 입력창 공간을 돌려준다.
+  if (chatState.history.length){ el.innerHTML = ""; return; }
+  el.innerHTML = CHAT_CHIPS.map(q =>
+    '<button type="button" class="chat-chip" data-q="' + esc(q) + '">' + esc(q) + "</button>").join("");
+  $$(".chat-chip").forEach(c => c.addEventListener("click", () => chatSend(c.dataset.q)));
+}
 
-  const ask = async question => {
-    input.value = question;
-    msg.textContent = "";
-    msg.className = "sf-msg rf-msg";
-    submitBtn.disabled = true;
-    submitBtn.innerHTML = '<span class="rf-spin"></span>답변 생성 중…';
-    $("#sf-answer").innerHTML = "";
+async function chatSend(text){
+  const q = (text || "").trim();
+  if (!q || chatState.busy) return;
+  if (q.length < 2) return;
 
-    try {
-      const res = await fetch("/api/safety?q=" + encodeURIComponent(question));
-      const j = await res.json().catch(() => ({}));
-      if (res.status === 200 && j && j.ready){
-        $("#sf-answer").innerHTML = renderSafetyAnswer(j);
-      } else if (res.status === 429){
-        msg.textContent = (j && j.message) || "짧은 시간에 너무 많은 질문이 들어왔습니다. 잠시 후 다시 시도해주세요.";
-        msg.className = "sf-msg rf-msg rf-err";
-      } else if (res.status === 400){
-        msg.textContent = (j && j.message) || "질문을 다시 확인해주세요.";
-        msg.className = "sf-msg rf-msg rf-err";
-      } else if (j && j.ready === false){
-        msg.textContent = "안전·규정 Q&A 기능이 아직 준비되지 않았습니다.";
-        msg.className = "sf-msg rf-msg rf-err";
-      } else {
-        msg.textContent = "답변을 가져오지 못했습니다. 잠시 후 다시 시도해주세요.";
-        msg.className = "sf-msg rf-msg rf-err";
-      }
-    } catch (e){
-      msg.textContent = "네트워크 오류로 답변을 가져오지 못했습니다.";
-      msg.className = "sf-msg rf-msg rf-err";
-    } finally {
-      submitBtn.disabled = false;
-      submitBtn.textContent = "질문하기";
+  chatState.busy = true;
+  $("#chat-send").disabled = true;
+  $("#chat-input").value = "";
+  chatState.history.push({ role: "user", content: q });
+  chatAppend(chatBubble("me", esc(q)));
+  renderChatChips();
+  chatAppend('<div class="chat-msg bot" id="chat-pending">' +
+    '<span class="chat-typing"><i></i><i></i><i></i></span></div>');
+
+  try {
+    const spots = await chatSpotSnapshot();
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: chatState.history.slice(-8),
+        level: LEVELS[state.level].label,
+        spots: spots,
+      }),
+    });
+    const j = await res.json().catch(() => ({}));
+    $("#chat-pending")?.remove();
+
+    if (res.status === 200 && j && j.ready && j.answer){
+      chatState.history.push({ role: "assistant", content: j.answer });
+      chatAppend(chatBubble("bot", esc(j.answer) + renderChatSources(j.sources)));
+    } else {
+      const msg = (j && j.message) ||
+        (j && j.ready === false ? "도우미가 아직 준비되지 않았습니다." : "답변을 가져오지 못했습니다.");
+      chatAppend(chatBubble("bot", esc(msg), "err"));
     }
-  };
+  } catch (_){
+    $("#chat-pending")?.remove();
+    chatAppend(chatBubble("bot", "네트워크 오류로 답변을 가져오지 못했습니다.", "err"));
+  } finally {
+    chatState.busy = false;
+    $("#chat-send").disabled = false;
+    $("#chat-log").scrollTop = $("#chat-log").scrollHeight;
+  }
+}
 
-  form.addEventListener("submit", e => {
+function openChat(){
+  chatState.open = true;
+  $("#chat").hidden = false;
+  $("#chat-fab").classList.add("hidden");
+  $("#chat-fab").setAttribute("aria-expanded", "true");
+  // 스크림은 모바일 전체화면일 때만 의미가 있다(데스크톱 패널은 뒤 내용을 계속 봐야 한다).
+  $("#chat-scrim").hidden = window.innerWidth > 720;
+  if (!$("#chat-log").children.length){
+    chatAppend(chatBubble("bot",
+      "안녕하세요! 안전·규정이나 오늘 좋은 포인트를 물어보세요.<br>" +
+      '<span class="dimc" style="font-size:11.5px">답변은 참고 정보입니다. 입수 전 기상청·해양경찰청 정보를 확인하세요.</span>'));
+  }
+  renderChatChips();
+  $("#chat-input").focus();
+}
+function closeChat(){
+  chatState.open = false;
+  $("#chat").hidden = true;
+  $("#chat-scrim").hidden = true;
+  $("#chat-fab").classList.remove("hidden");
+  $("#chat-fab").setAttribute("aria-expanded", "false");
+  $("#chat-fab").focus();
+}
+
+function initChat(){
+  $("#chat-fab").addEventListener("click", openChat);
+  $("#chat-close").addEventListener("click", closeChat);
+  $("#chat-scrim").addEventListener("click", closeChat);
+  $("#chat-form").addEventListener("submit", e => {
     e.preventDefault();
-    const q = input.value.trim();
-    if (q.length < 2){
-      msg.textContent = "질문은 2자 이상 입력해주세요.";
-      msg.className = "sf-msg rf-msg rf-err";
-      return;
-    }
-    ask(q);
+    chatSend($("#chat-input").value);
   });
-
-  $$(".sf-chip").forEach(chip => chip.addEventListener("click", () => ask(chip.dataset.q)));
-}
-
-function renderSafetyPage(){
-  app.innerHTML = renderSafetyForm();
-  wireSafetyForm();
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape" && chatState.open) closeChat();
+  });
+  // 데스크톱↔모바일 폭이 바뀌면 스크림 필요 여부도 바뀐다.
+  window.addEventListener("resize", () => {
+    if (chatState.open) $("#chat-scrim").hidden = window.innerWidth > 720;
+  });
 }
 
 /* ============================ 라우팅 ============================
-   경로 4개: / (홈) · /forecast (파도예보) · /reports (파도제보) · /safety (안전정보).
+   경로 3개: / (홈) · /forecast (파도예보) · /reports (파도제보).
+   안전·규정 Q&A 는 라우트가 아니라 어디서나 열리는 챗봇(#chat)이 맡는다.
    해시 라우팅 대신 History API 를 쓴다 — wrangler.jsonc 의
    assets.not_found_handling: "single-page-application" 덕분에 /forecast, /reports,
-   /safety 를 새로고침해도(또는 직접 주소창에 쳐도) 그대로 이 index.html 이 서빙된다.
+   를 새로고침해도(또는 직접 주소창에 쳐도) 그대로 이 index.html 이 서빙된다.
 ================================================================== */
 const TITLE_OF = {
   home:     "WaveTracer — 국내 서핑 파도 예보",
   forecast: "WaveTracer — 파도예보",
   reports:  "WaveTracer — 파도 제보",
-  safety:   "WaveTracer — 안전정보",
 };
 
 /** 현재 location 을 라우트 이름으로 해석.
@@ -1821,7 +1945,6 @@ function resolveRoute(){
   }
   if (path === "/forecast") return "forecast";
   if (path === "/reports") return "reports";
-  if (path === "/safety") return "safety";
   history.replaceState(null, "", "/");
   return "home";
 }
@@ -1843,7 +1966,6 @@ function renderRoute(){
     renderForecastPage();
   }
   else if (route === "reports") renderReportsPage();
-  else if (route === "safety") renderSafetyPage();
   else renderHomePage();
 }
 
@@ -1866,6 +1988,7 @@ document.addEventListener("click", e => {
 /* ============================ init ============================ */
 loadLevelPref();
 buildSpotSelect();
+initChat();
 $("#date").value = state.date;
 
 $("#spot").addEventListener("change", e => {

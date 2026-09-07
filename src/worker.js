@@ -177,12 +177,10 @@ async function handleReportsPost(request, env){
   }
 }
 
-/* ---------- 안전·규정 Q&A (/api/safety) ----------
-   벡터 임베딩 없이 D1 FTS5(trigram) + LIKE 로 관련 문서를 먼저 찾고, 그 발췌만
-   근거로 LLM 에 넘겨 답하게 한다 — 모델이 코퍼스 밖 내용을 지어내지 못하게 막는
-   구조다. 문서가 없으면(관련 자료를 못 찾으면) LLM 을 아예 호출하지 않는다 —
-   비용 절감과 "근거 없이 지어내는 답변" 방지를 동시에 노린다.
-   (검색 세부 로직과 FTS5+LIKE 를 같이 쓰는 이유는 searchSafetyDocs 참고) */
+/* ---------- 안전 코퍼스 검색 (챗봇의 근거 공급원) ----------
+   벡터 임베딩 없이 D1 FTS5(trigram) + LIKE 로 질문과 관련된 문서를 찾는다.
+   여기서 찾은 발췌만 LLM 에 근거로 넘겨서, 모델이 코퍼스 밖 규정을 지어내지
+   못하게 막는다. (FTS5 와 LIKE 를 같이 쓰는 이유는 searchSafetyDocs 참고) */
 const SAFETY_MODEL = "@cf/qwen/qwen3-30b-a3b-fp8"; // 다국어·한국어 성능 확인된 Cloudflare 호스팅 모델
 const SAFETY_SALT = "wavetracer-safety-v1-salt"; // reports 와 해시 공간을 분리하기 위한 별도 salt
 const SAFETY_RATE_LIMIT_MAX = 15;
@@ -268,74 +266,136 @@ async function searchSafetyDocs(env, question){
   return [...docMap.values()].slice(0, SAFETY_TOP_K);
 }
 
-async function handleSafety(request, env, ctx){
-  if (request.method !== "GET"){
-    return json({ error: "method_not_allowed", message: "허용되지 않은 메서드입니다." }, 405, { allow: "GET" });
+/* ---------- AI 챗봇 (/api/chat) ----------
+   안전·규정 질문과 "오늘 어디가 좋아?" 같은 추천을 한 창구에서 받는다.
+
+   근거는 두 갈래로 붙인다.
+     1) 안전 자료 — 질문 키워드로 D1 코퍼스를 검색해(searchSafetyDocs) 걸린 것만
+     2) 현재 컨디션 — spot_conditions 는 13행뿐이라 늘 통째로 넣는다
+
+   도구 호출(function calling)로 모델이 갈래를 고르게 할 수도 있지만, LLM 왕복이
+   두 번이 되고 지연·비용이 늘어난다. 자료가 이 정도로 작으면 둘 다 넣고 한 번만
+   부르는 쪽이 단순하고 빠르다.
+
+   점수는 클라이언트가 계산해 보내온다. 레벨별 점수 곡선을 프론트 한 곳에만 두려는
+   기존 결정을 유지하기 위해서다 — 워커가 따로 채점하면 곡선이 두 벌이 되고, 지도에
+   82점으로 뜨는 스팟을 챗봇이 다르게 말하는 사고가 난다. 사용자가 조작해도 자기
+   대화에만 영향이 있어 위험이 낮다. */
+const CHAT_MAX_TURNS = 8;      // 왕복 히스토리 상한 (토큰·비용 방어)
+const CHAT_MAX_CHARS = 500;    // 한 메시지 길이 상한
+const CHAT_RATE_LIMIT_MAX = 20;
+
+function conditionsBlock(spotScores, level){
+  if (!Array.isArray(spotScores) || !spotScores.length) return "";
+  const lines = spotScores
+    .filter(s => s && typeof s.id === "string" && SPOTS[s.id])
+    .slice(0, SPOT_IDS.length)
+    .map(s => {
+      const name = typeof s.name === "string" ? s.name.slice(0, 20) : s.id;
+      const score = Number.isFinite(s.score) ? Math.round(s.score) : null;
+      const wave = Number.isFinite(s.waveH) ? s.waveH.toFixed(1) + "m" : "-";
+      return `- ${name}: ${score == null ? "점수 없음" : score + "점"}, 파고 ${wave}`;
+    });
+  if (!lines.length) return "";
+  return `[현재 컨디션 · ${level} 기준 · 이 앱이 계산한 점수]\n` + lines.join("\n");
+}
+
+async function handleChat(request, env, ctx){
+  if (request.method !== "POST"){
+    return json({ error: "method_not_allowed", message: "허용되지 않은 메서드입니다." }, 405, { allow: "POST" });
   }
-  if (!env.DB || !env.AI){
-    return json({ ready: false, reason: "not_configured" });
+  if (!env.DB || !env.AI) return json({ ready: false, reason: "not_configured" });
+
+  let raw;
+  try { raw = await request.json(); } catch (_){
+    return json({ error: "validation", message: "요청을 읽을 수 없습니다." }, 400);
+  }
+  if (!raw || typeof raw !== "object") raw = {};
+
+  // 히스토리 검증: 역할과 길이를 강제하고 최근 것만 남긴다.
+  const history = (Array.isArray(raw.messages) ? raw.messages : [])
+    .filter(m => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
+    .slice(-CHAT_MAX_TURNS)
+    .map(m => ({ role: m.role, content: m.content.trim().slice(0, CHAT_MAX_CHARS) }))
+    .filter(m => m.content.length > 0);
+
+  const last = history[history.length - 1];
+  if (!last || last.role !== "user"){
+    return json({ error: "validation", message: "질문을 입력해주세요." }, 400);
+  }
+  if (last.content.length < 2){
+    return json({ error: "validation", message: "질문은 2자 이상 입력해주세요." }, 400);
   }
 
-  const url = new URL(request.url);
-  const question = (url.searchParams.get("q") || "").trim();
-  if (question.length < 2 || question.length > 200){
-    return json({ error: "validation", message: "질문은 2~200자로 입력해주세요." }, 400);
-  }
+  const levelLabel = typeof raw.level === "string" ? raw.level.slice(0, 12) : "숏보더";
 
   const ip = request.headers.get("CF-Connecting-IP") || "unknown";
   const ipHash = await sha256Hex(ip + SAFETY_SALT);
   const windowStart = new Date(Date.now() - SAFETY_RATE_LIMIT_WINDOW_MIN * 60 * 1000).toISOString();
-
   try {
-    // 카운터 성격이라 오래된 행은 조회 시점에 그때그때 지운다 — 별도 정리 작업 없이도
-    // 테이블이 무한히 커지지 않는다.
     await env.DB.prepare("DELETE FROM safety_asks WHERE created_at < ?1").bind(windowStart).run();
     const { results: recent } = await env.DB.prepare(
       "SELECT COUNT(*) AS n FROM safety_asks WHERE ip_hash = ?1 AND created_at > ?2"
     ).bind(ipHash, windowStart).all();
-    if (((recent && recent[0] && recent[0].n) || 0) >= SAFETY_RATE_LIMIT_MAX){
+    if (((recent && recent[0] && recent[0].n) || 0) >= CHAT_RATE_LIMIT_MAX){
       return json({ error: "rate_limited", message: "짧은 시간에 너무 많은 질문이 들어왔습니다. 잠시 후 다시 시도해주세요." }, 429);
     }
     ctx.waitUntil(env.DB.prepare(
       "INSERT INTO safety_asks (ip_hash, created_at) VALUES (?1, ?2)"
     ).bind(ipHash, new Date().toISOString()).run());
-  } catch (_){
-    // 레이트리밋 집계 실패는 질문 응답 자체를 막을 이유가 아니다 — 무시하고 계속한다.
-  }
+  } catch (_){ /* 집계 실패가 답변을 막을 이유는 없다 */ }
 
-  const docs = await searchSafetyDocs(env, question);
+  const docs = await searchSafetyDocs(env, last.content);
+  const docBlock = docs.length
+    ? "[안전 자료]\n" + docs.map((d, i) =>
+        `[문서 ${i + 1}] ${d.title}\n${d.body}\n(출처: ${d.source_name})`).join("\n\n")
+    : "";
+  const condBlock = conditionsBlock(raw.spots, levelLabel);
 
-  if (!docs.length){
-    return json({
-      ready: true, question,
-      answer: "관련된 안전·규정 정보를 찾지 못했습니다. 질문을 조금 다르게 표현해보시거나, 기상청·해양경찰청 공식 사이트를 직접 확인해주세요.",
-      sources: [],
-    });
-  }
-
-  const context = docs.map((d, i) =>
-    `[문서 ${i + 1}] ${d.title}\n${d.body}\n(출처: ${d.source_name})`
-  ).join("\n\n");
+  // 인용 규칙은 안전 자료가 실제로 붙었을 때만 넣는다. 조건 없이 넣어두면
+  // 자료가 하나도 없는 추천 질문에도 모델이 [문서 1] 을 붙여서, 가리킬 대상이
+  // 없는 인용이 화면에 남는다(실제로 재현했다).
+  const citeRule = docs.length
+    ? "5. 참고한 안전 문서가 있으면 끝에 [문서 1] 처럼 번호를 표시한다."
+    : "5. 이번 질문에는 안전 자료가 제공되지 않았다. [문서 1] 같은 문서 번호 표기를 절대 쓰지 마라.";
 
   const systemPrompt =
-    "너는 한국 서핑/해양 안전·규정 안내 도우미다. 아래 [문서]들에 있는 내용만 근거로 한국어로 답한다. " +
-    "문서에 없는 내용은 절대 추측하거나 지어내지 말고, 그런 경우 모른다고 말한다. " +
-    "답변 끝에 참고한 문서 번호를 대괄호로 표시한다(예: [문서 1][문서 3]). " +
-    "이 답변은 법률 자문이 아니라 참고 정보라는 점을 짧게 덧붙인다. 3~6문장 이내로 간결하게 답한다.";
+    "너는 국내 서핑 예보 앱 WaveTracer 의 안내 도우미다. 한국어로 친근하되 간결하게 답한다(5문장 이내).\n" +
+    "규칙:\n" +
+    "1. [안전 자료] 에 있는 내용만 근거로 규정·법령·안전 수칙을 말한다. 자료에 없으면 모른다고 말하고 기상청·해양경찰청 확인을 권한다. 절대 지어내지 않는다.\n" +
+    "2. [현재 컨디션] 의 점수는 이 앱이 계산한 값이다. 그대로 인용하고 임의로 바꾸거나 새로 매기지 않는다. " +
+    "포인트 추천은 [현재 컨디션] 만으로 답한다 — 안전 자료가 없어도 추천은 얼마든지 가능하니, 자료가 없다는 이유로 추천을 거절하지 마라. 점수가 높은 순으로 답한다.\n" +
+    "3. 서핑·해양 안전과 무관한 질문에는 답할 수 없다고 짧게 말한다.\n" +
+    "4. 안전·규정을 다뤘다면 법률 자문이 아닌 참고 정보임을 한 문장으로 덧붙인다.\n" +
+    citeRule;
+
+  const grounding = [condBlock, docBlock].filter(Boolean).join("\n\n");
+  const messages = [{ role: "system", content: systemPrompt }];
+  // 직전 대화는 그대로 넘겨 다회차 맥락을 유지하고, 자료는 마지막 질문에만 붙인다.
+  history.slice(0, -1).forEach(m => messages.push(m));
+  messages.push({
+    role: "user",
+    content: (grounding ? grounding + "\n\n" : "") + "[질문]\n" + last.content,
+  });
 
   try {
-    const ai = await env.AI.run(SAFETY_MODEL, {
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: `[문서]\n${context}\n\n[질문]\n${question}` },
-      ],
-    });
-    const answer = (ai && (ai.response || ai.result)) || "답변을 생성하지 못했습니다.";
+    // max_tokens 를 반드시 넘긴다. 이 모델은 추론형이라 생각 과정에도 출력 토큰을
+    // 쓰는데, 기본값에 맡기면 프롬프트가 길어질 때 생각만 하다 예산이 떨어져
+    // response 가 빈 문자열로 돌아온다(운영에서 실제로 재현했다).
+    const ai = await env.AI.run(SAFETY_MODEL, { messages, max_tokens: 900 });
+    // 모델이 앞뒤로 빈 줄을 붙여 보내는 경우가 있다. 말풍선은 pre-wrap 이라
+    // 그대로 두면 위아래로 빈 공간이 생긴다.
+    const answer = String((ai && (ai.response || ai.result)) || "").trim() ||
+      "답변을 생성하지 못했습니다.";
     return json({
-      ready: true, question, answer,
-      sources: docs.map(d => ({ id: d.id, title: d.title, category: d.category, sourceName: d.source_name, sourceUrl: d.source_url })),
+      ready: true,
+      answer,
+      sources: docs.map(d => ({
+        id: d.id, title: d.title, category: d.category,
+        sourceName: d.source_name, sourceUrl: d.source_url,
+      })),
     });
-  } catch (err){
+  } catch (_){
     return json({ error: "ai_error", message: "답변 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요." }, 502);
   }
 }
@@ -467,7 +527,7 @@ export default {
 
     if (url.pathname === "/api/advisory") return handleAdvisory(request, env, ctx);
     if (url.pathname === "/api/reports") return handleReports(request, env, ctx);
-    if (url.pathname === "/api/safety") return handleSafety(request, env, ctx);
+    if (url.pathname === "/api/chat") return handleChat(request, env, ctx);
     if (url.pathname === "/api/conditions") return handleConditions(request, env);
 
     // run_worker_first 가 "/api/*" 만 여기로 보내므로 원칙적으로 도달하지 않지만,

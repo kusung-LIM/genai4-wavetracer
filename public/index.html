@@ -26,6 +26,14 @@
   --mono:ui-monospace,"SF Mono","Cascadia Mono","Consolas",monospace;
 }
 *{box-sizing:border-box}
+
+/* hidden 속성을 항상 이기게 만든다.
+   브라우저 기본값은 [hidden]{display:none} 인데, 우리가 .chat{display:flex} 나
+   .controls{display:grid} 처럼 클래스에 display 를 주는 순간 그쪽이 우선순위에서
+   이겨서 hidden 이 무력해진다. 실제로 챗봇 패널이 hidden=true 인데도 계속 화면에
+   떠 있었고, ✕ 를 눌러도 아무 일도 안 일어나는 것처럼 보였다.
+   요소마다 [hidden] 규칙을 따로 붙이는 대신 여기서 한 번에 막는다. */
+[hidden]{display:none !important}
 html,body{margin:0;padding:0}
 body{
   font-family:var(--font); background:var(--bg); color:var(--text);
@@ -73,8 +81,7 @@ header{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:1
 }
 
 /* ---------- controls ---------- */
-.controls{display:grid;gap:12px;margin-bottom:18px}
-#controls[hidden]{display:none} /* .controls 의 display:grid 가 기본 hidden 스타일보다 우선하므로 명시적으로 덮어씀 */
+.controls{display:grid;gap:12px;margin-bottom:18px} /* hidden 처리는 상단 전역 [hidden] 규칙이 맡는다 */
 .ctl-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 label.fld{
   display:flex;align-items:center;gap:9px;background:var(--surface);
@@ -554,7 +561,7 @@ footer a:hover{color:var(--accent)}
 <!-- AI 챗봇. .wrap 바깥(라우터 밖)이라 어느 화면에서든 그대로 떠 있다.
      데스크톱은 오른쪽 사이드 패널, 모바일은 전체화면 시트로 열린다 — DOM 은
      하나고 CSS 미디어쿼리로만 갈린다. -->
-<button type="button" id="chat-fab" class="chat-fab" aria-label="AI 도우미 열기" aria-expanded="false">
+<button type="button" id="chat-fab" class="chat-fab" aria-label="AI 도우미 열기" title="AI 도우미" aria-expanded="false">
   <span class="chat-fab-ic" aria-hidden="true">💬</span>
 </button>
 <div id="chat-scrim" class="chat-scrim" hidden></div>
@@ -565,7 +572,7 @@ footer a:hover{color:var(--accent)}
       <div class="chat-title">WaveTracer 도우미</div>
       <div class="chat-sub">안전·규정, 오늘 좋은 포인트를 물어보세요</div>
     </div>
-    <button type="button" id="chat-close" class="chat-close" aria-label="닫기">✕</button>
+    <button type="button" id="chat-close" class="chat-close" aria-label="도우미 최소화" title="최소화">✕</button>
   </header>
   <div id="chat-log" class="chat-log" role="log" aria-live="polite"></div>
   <div id="chat-chips" class="chat-chips"></div>

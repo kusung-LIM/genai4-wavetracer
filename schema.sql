@@ -59,3 +59,19 @@ CREATE TABLE IF NOT EXISTS safety_asks (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_safety_asks_hash_time ON safety_asks(ip_hash, created_at);
+
+-- 홈 지도용 13개 스팟 현재 상황 스냅샷.
+-- Cron(15분)이 Open-Meteo 에서 모아 여기에 덮어쓰고, 홈은 이 표만 읽는다.
+-- 방문자마다 13개 스팟을 직접 부르면 요청이 26번씩 나가고 Open-Meteo 무료
+-- 쿼터가 트래픽에 비례해 녹는데, 이렇게 두면 하루 192회로 고정된다.
+--
+-- 점수는 저장하지 않는다. 레벨별 점수 곡선은 프론트(public/index.html)에만
+-- 두고 원시 관측값만 저장해서, 곡선을 손봐도 저장분을 다시 만들 필요가 없게 했다.
+CREATE TABLE IF NOT EXISTS spot_conditions (
+  spot_id TEXT PRIMARY KEY,
+  observed_at TEXT NOT NULL,  -- 이 값이 대표하는 정시(KST)
+  updated_at TEXT NOT NULL,   -- 수집한 시각
+  wave_height REAL, wave_period REAL, wave_dir REAL,
+  swell_height REAL, swell_period REAL, swell_dir REAL,
+  wind_speed REAL, wind_dir REAL, sea_temp REAL
+);

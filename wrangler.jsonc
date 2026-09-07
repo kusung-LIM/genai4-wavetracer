@@ -8,7 +8,12 @@
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
     // /api/* 요청만 워커로 보내고, 그 외 정적 파일은 지금처럼 워커를 거치지 않고 바로 서빙된다.
-    "run_worker_first": ["/api/*"]
+    //
+    // /__scheduled 는 `wrangler dev --test-scheduled` 가 Cron 을 수동으로 쏘려고
+    // 여는 경로다. 여기 넣지 않으면 정적 에셋의 SPA 폴백이 먼저 삼켜서 index.html
+    // 이 돌아오고 Cron 핸들러가 아예 안 불린다. 운영에서는 Cron 이 HTTP 라우팅을
+    // 거치지 않으므로 이 항목이 동작에 영향을 주지 않는다(워커로 가도 ASSETS 폴백).
+    "run_worker_first": ["/api/*", "/__scheduled"]
   },
   // 파도 제보(/api/reports)와 안전·규정 Q&A(/api/safety) 저장용 D1 데이터베이스.
   // schema.sql 을 로컬/원격에 각각 적용해야 실제로 쓸 수 있다 (README 참고).
@@ -20,6 +25,12 @@
   // 구조다. Workers AI는 로컬 개발에서도 실제 계정에 소액 과금된다(문서에 명시).
   "ai": {
     "binding": "AI"
+  },
+  // 15분마다 13개 스팟의 현재 상황을 모아 D1(spot_conditions)에 덮어쓴다.
+  // 홈 지도는 그 표만 읽으므로, 방문자 수와 무관하게 Open-Meteo 호출이
+  // 하루 192회(96회 × 요청 2건)로 고정된다.
+  "triggers": {
+    "crons": ["*/15 * * * *"]
   },
   "observability": {
     "enabled": true

@@ -20,29 +20,35 @@
 const KMA_ENDPOINT = "https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnList";
 const CACHE_SECONDS = 600; // 10분 — 공공데이터포털 하루 호출 한도(기본 1,000회/키)를 아낀다
 
-// 스팟 → 해상 예보구역 매핑 (잠정치).
+// 스팟 표. id 는 프론트(public/index.html 의 SPOTS)와 반드시 같아야 한다 — 그쪽은
+// 이름·지역·facing 같은 표시용 정보를, 여기서는 수집에 필요한 좌표와 특보구역을
+// 들고 있고 id 로 join 한다. 스팟을 추가할 때는 양쪽 다 넣어야 한다.
 //
-// TODO 실키 연동 전 반드시 검증할 것: 공공데이터포털의 공식 코드표
-// ("기상청_기상특보구역정보", 데이터셋 15043573)를 인증키로 내려받아
-// 아래 zoneName 이 실제 특보 응답의 지역명 표기와 정확히 일치하는지,
-// 그리고 해변이 그 구역 경계 안에 있는지 대조 확인해야 한다.
-// 지금은 인증키 없이는 그 코드표를 열람할 수 없어 이름만 잠정 매핑해 두었다.
-const ZONE_MAP = {
-  sampo:     { zoneName: "동해중부앞바다" },
-  hajodae:   { zoneName: "동해중부앞바다" },
-  jukdo:     { zoneName: "동해중부앞바다" },
-  ingu:      { zoneName: "동해중부앞바다" },
-  gyeongpo:  { zoneName: "동해중부앞바다" },
-  geumjin:   { zoneName: "동해중부앞바다" },
-  yonghan:   { zoneName: "동해남부앞바다" },
-  songjeong: { zoneName: "남해동부앞바다" },
-  dadaepo:   { zoneName: "남해서부앞바다" },
-  jungmun:   { zoneName: "제주도앞바다" },
-  iho:       { zoneName: "제주도앞바다" },
-  woljeong:  { zoneName: "제주도앞바다" },
-  malli:     { zoneName: "서해중부앞바다" },
+//   lat/lon : 해변 좌표 (바람 수집용)
+//   sea     : 앞바다 좌표 (해상 수집용 — 해변 좌표를 그대로 쓰면 파랑 모델이
+//             육지로 판정해 null 만 돌려준다)
+//
+// zoneName 은 잠정치다. TODO 실키 연동 전 반드시 검증할 것: 공공데이터포털의
+// 공식 코드표("기상청_기상특보구역정보", 데이터셋 15043573)를 인증키로 내려받아
+// 실제 특보 응답의 지역명 표기와 일치하는지, 해변이 그 구역 경계 안에 있는지
+// 대조 확인해야 한다. 지금은 인증키 없이 그 코드표를 열람할 수 없다.
+const SPOTS = {
+  sampo:     { zoneName: "동해중부앞바다", lat: 38.2650, lon: 128.5620, sea: [38.2650, 128.5950] },
+  hajodae:   { zoneName: "동해중부앞바다", lat: 38.0480, lon: 128.6960, sea: [38.0480, 128.7300] },
+  jukdo:     { zoneName: "동해중부앞바다", lat: 38.0158, lon: 128.7186, sea: [38.0158, 128.7500] },
+  ingu:      { zoneName: "동해중부앞바다", lat: 37.9930, lon: 128.7290, sea: [37.9930, 128.7600] },
+  gyeongpo:  { zoneName: "동해중부앞바다", lat: 37.8010, lon: 128.9080, sea: [37.8010, 128.9400] },
+  geumjin:   { zoneName: "동해중부앞바다", lat: 37.6360, lon: 129.0460, sea: [37.6360, 129.0750] },
+  yonghan:   { zoneName: "동해남부앞바다", lat: 36.1170, lon: 129.4090, sea: [36.1170, 129.4400] },
+  songjeong: { zoneName: "남해동부앞바다", lat: 35.1786, lon: 129.1997, sea: [35.1640, 129.2130] },
+  dadaepo:   { zoneName: "남해서부앞바다", lat: 35.0430, lon: 128.9670, sea: [35.0250, 128.9670] },
+  jungmun:   { zoneName: "제주도앞바다",   lat: 33.2447, lon: 126.4106, sea: [33.2250, 126.4106] },
+  iho:       { zoneName: "제주도앞바다",   lat: 33.4990, lon: 126.4530, sea: [33.5200, 126.4530] },
+  woljeong:  { zoneName: "제주도앞바다",   lat: 33.5560, lon: 126.7960, sea: [33.5750, 126.7960] },
+  malli:     { zoneName: "서해중부앞바다", lat: 36.7889, lon: 126.1379, sea: [36.7889, 126.1050] },
 };
-const SPOT_IDS = Object.keys(ZONE_MAP); // 파도 제보의 스팟 검증에도 그대로 재사용 — 스팟 표를 두 곳에 두지 않는다
+const SPOT_IDS = Object.keys(SPOTS); // 파도 제보의 스팟 검증에도 그대로 재사용
+const ZONE_MAP = SPOTS;              // 풍랑특보 매핑은 같은 표를 본다
 
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
@@ -334,6 +340,117 @@ async function handleSafety(request, env, ctx){
   }
 }
 
+/* ---------- 스팟 현재 상황 수집 (/api/conditions + Cron) ----------
+   13개 스팟을 방문자마다 부르면 요청이 26번 나가고 Open-Meteo 쿼터가 트래픽에
+   비례해 녹는다. 그래서 Cron(15분)이 한 번만 모아 D1 에 넣고, 홈은 D1 만 읽는다.
+
+   Open-Meteo 는 latitude/longitude 에 쉼표로 여러 좌표를 넣으면 입력 순서대로
+   배열을 돌려준다. 덕분에 13개 스팟이 해상 1건 + 바람 1건, 총 2요청으로 끝난다.
+
+   점수는 저장하지 않는다 — 레벨별 곡선은 프론트에만 두고 여기서는 원시 관측값만
+   넣어서, 점수 곡선을 손봐도 저장분을 다시 만들 필요가 없게 했다. */
+const MARINE_FIELDS = "wave_height,wave_direction,wave_period,swell_wave_height," +
+                      "swell_wave_direction,swell_wave_period,sea_surface_temperature";
+const AIR_FIELDS = "wind_speed_10m,wind_direction_10m";
+
+const pickAt = (arr, i) => (arr && arr[i] != null) ? arr[i] : null;
+
+async function getJSON(url){
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status} — ${url.slice(0, 60)}`);
+  return res.json();
+}
+
+/** KST 기준 현재 정시를 Open-Meteo 의 시간 문자열(YYYY-MM-DDTHH:00) 형식으로 */
+function nowHourKST(){
+  const p = {};
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", hour12: false,
+  }).formatToParts(new Date()).forEach(x => { p[x.type] = x.value; });
+  const hh = p.hour === "24" ? "00" : p.hour;
+  return `${p.year}-${p.month}-${p.day}T${hh}:00`;
+}
+
+async function refreshConditions(env){
+  if (!env.DB) return { ok: false, reason: "no_database" };
+
+  const ids = SPOT_IDS;
+  const seaLat = ids.map(id => SPOTS[id].sea[0].toFixed(4)).join(",");
+  const seaLon = ids.map(id => SPOTS[id].sea[1].toFixed(4)).join(",");
+  const airLat = ids.map(id => SPOTS[id].lat.toFixed(4)).join(",");
+  const airLon = ids.map(id => SPOTS[id].lon.toFixed(4)).join(",");
+
+  const marineUrl = "https://marine-api.open-meteo.com/v1/marine?latitude=" + seaLat +
+    "&longitude=" + seaLon + "&hourly=" + MARINE_FIELDS + "&timezone=Asia%2FSeoul&forecast_days=1";
+  const airUrl = "https://api.open-meteo.com/v1/forecast?latitude=" + airLat +
+    "&longitude=" + airLon + "&hourly=" + AIR_FIELDS +
+    "&timezone=Asia%2FSeoul&forecast_days=1&wind_speed_unit=ms";
+
+  const [marine, air] = await Promise.all([getJSON(marineUrl), getJSON(airUrl)]);
+  // 좌표를 하나만 넣으면 배열이 아니라 객체가 오므로 방어적으로 감싼다.
+  const M = Array.isArray(marine) ? marine : [marine];
+  const A = Array.isArray(air) ? air : [air];
+
+  const target = nowHourKST();
+  const now = new Date().toISOString();
+  const writes = [];
+
+  ids.forEach((id, n) => {
+    const m = M[n], a = A[n];
+    if (!m || !m.hourly) return;
+    // 현재 정시를 찾고, 없으면(자정 경계 등) 첫 시각으로 떨어진다.
+    let i = m.hourly.time.indexOf(target);
+    if (i < 0) i = 0;
+    const j = (a && a.hourly) ? Math.max(0, a.hourly.time.indexOf(m.hourly.time[i])) : -1;
+
+    writes.push(env.DB.prepare(
+      "INSERT INTO spot_conditions (spot_id, observed_at, updated_at, wave_height, wave_period, wave_dir," +
+      " swell_height, swell_period, swell_dir, wind_speed, wind_dir, sea_temp)" +
+      " VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)" +
+      " ON CONFLICT(spot_id) DO UPDATE SET observed_at=excluded.observed_at, updated_at=excluded.updated_at," +
+      " wave_height=excluded.wave_height, wave_period=excluded.wave_period, wave_dir=excluded.wave_dir," +
+      " swell_height=excluded.swell_height, swell_period=excluded.swell_period, swell_dir=excluded.swell_dir," +
+      " wind_speed=excluded.wind_speed, wind_dir=excluded.wind_dir, sea_temp=excluded.sea_temp"
+    ).bind(
+      id, m.hourly.time[i], now,
+      pickAt(m.hourly.wave_height, i), pickAt(m.hourly.wave_period, i), pickAt(m.hourly.wave_direction, i),
+      pickAt(m.hourly.swell_wave_height, i), pickAt(m.hourly.swell_wave_period, i), pickAt(m.hourly.swell_wave_direction, i),
+      j < 0 ? null : pickAt(a.hourly.wind_speed_10m, j),
+      j < 0 ? null : pickAt(a.hourly.wind_direction_10m, j),
+      pickAt(m.hourly.sea_surface_temperature, i)
+    ));
+  });
+
+  if (writes.length) await env.DB.batch(writes);
+  return { ok: true, spots: writes.length, observedAt: target };
+}
+
+async function handleConditions(request, env){
+  if (request.method !== "GET"){
+    return json({ error: "method_not_allowed", message: "허용되지 않은 메서드입니다." }, 405, { allow: "GET" });
+  }
+  // 아직 한 번도 수집되지 않았거나 DB 가 없으면 빈 목록으로 안전하게 저하된다 —
+  // 지도는 마커를 회색으로 그리고 예보 화면은 평소대로 돈다.
+  if (!env.DB) return json({ ready: false, spots: [] });
+
+  try {
+    const { results } = await env.DB.prepare(
+      "SELECT spot_id, observed_at, updated_at, wave_height, wave_period, wave_dir," +
+      " swell_height, swell_period, swell_dir, wind_speed, wind_dir, sea_temp FROM spot_conditions"
+    ).all();
+    const spots = (results || []).map(r => ({
+      spotId: r.spot_id, observedAt: r.observed_at, updatedAt: r.updated_at,
+      waveH: r.wave_height, waveP: r.wave_period, waveD: r.wave_dir,
+      swellH: r.swell_height, swellP: r.swell_period, swellD: r.swell_dir,
+      windSpd: r.wind_speed, windDir: r.wind_dir, seaT: r.sea_temp,
+    }));
+    return json({ ready: spots.length > 0, spots }, 200, { "cache-control": "public, max-age=120" });
+  } catch (_){
+    return json({ ready: false, spots: [] });
+  }
+}
+
 function json(data, status = 200, extraHeaders){
   return new Response(JSON.stringify(data), {
     status,
@@ -351,10 +468,22 @@ export default {
     if (url.pathname === "/api/advisory") return handleAdvisory(request, env, ctx);
     if (url.pathname === "/api/reports") return handleReports(request, env, ctx);
     if (url.pathname === "/api/safety") return handleSafety(request, env, ctx);
+    if (url.pathname === "/api/conditions") return handleConditions(request, env);
 
     // run_worker_first 가 "/api/*" 만 여기로 보내므로 원칙적으로 도달하지 않지만,
     // 방어적으로 정적 자산 폴백을 남겨둔다.
     return env.ASSETS.fetch(request);
+  },
+
+  // wrangler.jsonc 의 triggers.crons 가 15분마다 부른다.
+  // 실패해도 조용히 넘어간다 — 다음 주기에 다시 시도하고, 그동안 홈 지도는
+  // 직전 스냅샷을 계속 보여주면 되기 때문이다.
+  async scheduled(event, env, ctx){
+    ctx.waitUntil(
+      refreshConditions(env).catch(err => {
+        console.error("refreshConditions failed:", (err && err.message) || err);
+      })
+    );
   },
 };
 

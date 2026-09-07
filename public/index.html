@@ -172,9 +172,10 @@ td.time{font-weight:650;font-family:var(--mono);font-size:13px}
 
 /* ---------- 입수 가능 여부(풍랑특보) 배너 ---------- */
 .advisory{
-  display:flex;align-items:center;gap:12px;padding:13px 18px;border-radius:var(--radius);
+  display:flex;flex-direction:column;gap:11px;padding:13px 18px;border-radius:var(--radius);
   margin-bottom:14px;border:1px solid var(--line);background:var(--surface);
 }
+.advisory-top{display:flex;align-items:center;gap:12px}
 .advisory .adv-ic{font-size:19px;line-height:1;flex:0 0 auto}
 .advisory .adv-main{min-width:0;flex:1}
 .advisory .adv-label{font-size:14.5px;font-weight:720;letter-spacing:-.01em}
@@ -191,6 +192,19 @@ td.time{font-weight:650;font-family:var(--mono);font-size:13px}
 .advisory.adv-pending{background:rgba(148,163,184,.08);border-color:var(--line)}
 .advisory.adv-pending .adv-label{color:var(--adv-pending)}
 @media (max-width:560px){ .advisory .adv-note{display:none} }
+
+/* 풍랑주의보일 때만 뜨는 "신고하러 가기" — 배너 안에서 가장 눈에 띄어야 하는 요소라
+   경고색 자체를 버튼 배경으로 써서 본문과 구분한다. */
+.adv-cta-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding-left:31px}
+.adv-cta{
+  display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;
+  background:rgba(245,158,11,.18);border:1px solid rgba(245,158,11,.45);color:#fcd34d;
+  font-size:12.5px;font-weight:680;padding:8px 14px;border-radius:10px;
+  text-decoration:none;letter-spacing:-.01em;transition:.15s;
+}
+.adv-cta:hover{background:rgba(245,158,11,.3);border-color:rgba(245,158,11,.65)}
+.adv-cta-hint{font-size:11px;color:var(--dim)}
+@media (max-width:560px){ .adv-cta-row{padding-left:0} .adv-cta-hint{display:none} }
 .b-off{background:rgba(52,211,153,.17);color:#5eead4}
 .b-on{background:rgba(251,146,60,.17);color:#fdba74}
 .b-side{background:rgba(148,163,184,.16);color:#cbd5e1}
@@ -826,6 +840,14 @@ const ADVISORY_INFO = {
 };
 const KMA_LINK = "https://www.weather.go.kr/w/ocean/warning.do";
 
+// 풍랑ㆍ호우ㆍ대설ㆍ강풍 "주의보"가 발효된 해역에서 파도·바람만으로 움직이는 수상레저기구
+// (서프보드 포함, 무동력)로 활동하려면 해양경찰청에 신고해야 한다 — 확인된 근거:
+// https://boat.kcg.go.kr/home/wtrlsrActInfo/weathrSpcnwsDclr/infoView1.do
+// "경보" 단계는 이 신고 대상이 아니라 애초에 입수 자체가 금지라, 링크는 주의보(level 1)
+// 에서만 보여준다. 이 페이지는 신고서 자체가 아니라 해양경찰청 실명인증 로그인 이후
+// 신고로 이어지는 안내 페이지다 — 눌렀을 때 로그인 화면이 나오는 게 정상이다.
+const REPORT_LINK = "https://boat.kcg.go.kr/home/wtrlsrActInfo/weathrSpcnwsDclr/infoView1.do";
+
 let advisoryPromise = null;
 function loadAdvisory(){
   if (!advisoryPromise){
@@ -840,26 +862,35 @@ function loadAdvisory(){
 
 function renderAdvisoryBanner(advisory, spotId){
   if (!advisory || !advisory.ready){
-    return '<div class="advisory adv-pending">' +
+    return '<div class="advisory adv-pending"><div class="advisory-top">' +
       '<span class="adv-ic" aria-hidden="true">🕓</span>' +
       '<div class="adv-main">' +
         '<div class="adv-label">풍랑특보 연동 준비 중</div>' +
         '<div class="adv-detail">기상청 공식 연동 전입니다 · 출항·입수 전 직접 확인하세요</div>' +
       '</div>' +
       '<span class="adv-note"><a href="' + KMA_LINK + '" target="_blank" rel="noopener">기상청 해상특보 바로가기</a></span>' +
-    '</div>';
+    '</div></div>';
   }
   const s = advisory.spots && advisory.spots[spotId];
   const lvl = s ? s.level : 0;
   const info = ADVISORY_INFO[lvl] || ADVISORY_INFO[0];
-  return '<div class="advisory adv-' + lvl + '">' +
+  // 주의보일 때만: 신고 대상이 바로 이 단계이기 때문. 경보는 신고가 아니라 입수 자체가
+  // 금지라 이 버튼을 보여줄 이유가 없다.
+  const cta = lvl === 1
+    ? '<div class="adv-cta-row">' +
+        '<a class="adv-cta" href="' + REPORT_LINK + '" target="_blank" rel="noopener">' +
+          '📝 수상레저활동 신고하러 가기 →</a>' +
+        '<span class="adv-cta-hint">해양경찰청 실명인증 로그인이 필요합니다</span>' +
+      '</div>'
+    : '';
+  return '<div class="advisory adv-' + lvl + '"><div class="advisory-top">' +
     '<span class="adv-ic" aria-hidden="true">' + info.icon + '</span>' +
     '<div class="adv-main">' +
       '<div class="adv-label">' + info.label + '</div>' +
       '<div class="adv-detail">' + info.detail + (s && s.zone ? " · " + esc(s.zone) : "") + '</div>' +
     '</div>' +
     '<span class="adv-note">지금 기준 · <a href="' + KMA_LINK + '" target="_blank" rel="noopener">기상청 확인</a></span>' +
-  '</div>';
+  '</div>' + cta + '</div>';
 }
 
 let reqId = 0;

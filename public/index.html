@@ -133,6 +133,29 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.75) sepia(1) 
 .score .grade{font-size:14px;font-weight:720;margin-top:8px;letter-spacing:-.01em}
 .score .best{font-size:11.5px;color:var(--muted);margin-top:2px;white-space:nowrap}
 
+/* ---------- 레벨 선택기(비기너/롱보더/숏보더) ----------
+   .hero 가 2열 그리드라 전체 폭을 쓰도록 두 열에 걸치게 한다. */
+.lvl-row{
+  grid-column:1 / -1;display:grid;grid-template-columns:repeat(3,1fr);gap:8px;
+  padding-top:15px;border-top:1px solid var(--line);
+}
+.lvl-btn{
+  display:flex;flex-direction:column;align-items:center;gap:3px;
+  background:var(--surface);border:1px solid var(--line);border-radius:12px;
+  padding:9px 6px;cursor:pointer;font:inherit;transition:.15s;
+}
+.lvl-btn:hover{background:var(--surface-2);border-color:var(--line-strong)}
+.lvl-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.lvl-btn.on{background:rgba(56,189,248,.14);border-color:var(--accent);box-shadow:0 0 0 1px rgba(56,189,248,.28)}
+.lvl-name{font-size:11.5px;font-weight:650;color:var(--muted);letter-spacing:-.01em}
+.lvl-btn.on .lvl-name{color:var(--text)}
+.lvl-score{font-size:18px;font-weight:760;font-variant-numeric:tabular-nums;line-height:1.1}
+.lvl-warn{
+  font-size:11px;font-weight:650;color:#fdba74;margin-top:6px;line-height:1.45;
+  background:rgba(251,146,60,.14);border:1px solid rgba(251,146,60,.3);
+  border-radius:8px;padding:5px 9px;white-space:normal;
+}
+
 /* ---------- card ---------- */
 .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:18px 20px;margin-bottom:14px}
 .card h2{margin:0 0 3px;font-size:14px;font-weight:700;letter-spacing:-.01em}
@@ -513,10 +536,45 @@ function curve(v, pts){
   return pts[pts.length - 1][1];
 }
 
-/* ============================ 컨디션 점수 ============================ */
-const SIZE_C   = [[0,0],[0.3,12],[0.6,48],[0.9,78],[1.3,96],[2.0,100],[2.8,82],[3.8,48],[5.0,18],[7,0]];
-const PERIOD_C = [[3,8],[5,32],[7,60],[9,82],[11,95],[13,100],[18,100]];
-const WIND_C   = [[0,100],[2,97],[4,84],[6,64],[8,44],[11,22],[15,6],[22,0]];
+/* ============================ 컨디션 점수 ============================
+   레벨마다 "좋은 파도"의 정의 자체가 다르다. 가중치만 바꾸는 걸로는 부족해서
+   크기·주기 곡선을 레벨별로 따로 뒀다.
+
+   - 비기너: 작고 물렁한 파도가 최고다. 주기가 길수록(=파워가 셀수록) 오히려
+     어려워지므로 주기 곡선이 중간에서 꺾인다. 1.5m 를 넘어가면 재미가 아니라
+     위험 영역이라 점수를 빠르게 떨어뜨린다.
+   - 롱보더: 롱보드는 작고 약한 파도도 잘 잡는다. 스위트스팟이 비기너와
+     숏보더 사이에 있고, 노즈라이딩엔 면이 깨끗해야 해서 바람 비중이 가장 크다.
+   - 숏보더: 파워가 있어야 보드가 굴러간다. 짧은 풍랑에서는 아예 안 되므로
+     주기 비중이 가장 크고, 사이즈 스위트스팟도 가장 높다.
+
+   바람 기본 곡선(WIND_C)은 "면이 깨끗한가"라서 레벨과 무관하게 공유하고,
+   비중과 오프쇼어 보정 계수만 레벨별로 다르게 준다. 강한 오프쇼어는 비기너에겐
+   테이크오프를 방해하는 요소라 보정 계수를 낮게 잡았다. */
+const WIND_C = [[0,100],[2,97],[4,84],[6,64],[8,44],[11,22],[15,6],[22,0]];
+
+const LEVELS = {
+  beginner: {
+    label: "비기너", short: "비기너",
+    size:   [[0,0],[0.2,20],[0.4,62],[0.6,88],[0.8,100],[1.0,92],[1.3,66],[1.6,38],[2.0,14],[2.5,4],[3.5,0]],
+    period: [[3,55],[5,85],[7,100],[9,82],[11,58],[13,38],[18,25]],
+    w: { size: 0.50, period: 0.16, wind: 0.34 }, offBonus: 2.2, maxSafe: 1.5,
+  },
+  longboard: {
+    label: "롱보더", short: "롱보드",
+    size:   [[0,0],[0.2,14],[0.4,52],[0.6,82],[0.9,98],[1.2,100],[1.5,88],[2.0,60],[2.6,30],[3.5,8],[5,0]],
+    period: [[3,25],[5,55],[7,80],[9,96],[11,100],[14,92],[18,85]],
+    w: { size: 0.40, period: 0.20, wind: 0.40 }, offBonus: 3.0, maxSafe: 2.5,
+  },
+  shortboard: {
+    label: "숏보더", short: "숏보드",
+    size:   [[0,0],[0.3,6],[0.6,32],[0.9,64],[1.3,90],[1.8,100],[2.5,96],[3.2,74],[4.2,40],[5.5,14],[7,0]],
+    period: [[3,5],[5,25],[7,55],[9,80],[11,94],[13,100],[18,100]],
+    w: { size: 0.38, period: 0.30, wind: 0.32 }, offBonus: 3.6, maxSafe: null,
+  },
+};
+const LEVEL_KEYS = Object.keys(LEVELS);
+const DEFAULT_LEVEL = "shortboard"; // 기존 단일 점수 곡선과 가장 가까운 쪽을 기본값으로
 
 /**
  * 오프쇼어 정도: +1 완전 오프쇼어(육지→바다), -1 완전 온쇼어.
@@ -527,20 +585,29 @@ function offshoreness(windDir, facing){
   return Math.cos((windDir - (facing + 180)) * Math.PI / 180);
 }
 
-function scoreHour(h){
+/** 한 시간대를 세 레벨 모두로 채점해 { beginner, longboard, shortboard } 로 돌려준다.
+    로딩 시점에 한 번만 계산해 저장하므로(168시간 × 3), 레벨을 바꿔도 재계산이 없다. */
+function scoreHourAllLevels(h){
   const hgt = (isNum(h.swellH) && h.swellH > 0.05) ? h.swellH : h.waveH;
   const per = (isNum(h.swellP) && h.swellP > 0)    ? h.swellP : h.waveP;
   if (!isNum(hgt)) return null;
 
-  const sz  = curve(hgt, SIZE_C);
-  const pd  = curve(per, PERIOD_C);
-  const off = h.off;
   const spd = isNum(h.windSpd) ? h.windSpd : 0;
-  // 바람 = 세기 기본점 + 오프쇼어 보정(바람이 셀수록 방향의 영향이 커짐)
-  const wd  = clamp(curve(spd, WIND_C) + off * Math.min(spd, 11) * 3.4, 0, 100);
-
-  return Math.round(sz * 0.42 + pd * 0.24 + wd * 0.34);
+  const windBase = curve(spd, WIND_C);
+  const out = {};
+  for (const key of LEVEL_KEYS){
+    const L = LEVELS[key];
+    // 바람 = 세기 기본점 + 오프쇼어 보정(바람이 셀수록 방향의 영향이 커짐)
+    const wd = clamp(windBase + h.off * Math.min(spd, 11) * L.offBonus, 0, 100);
+    out[key] = Math.round(
+      curve(hgt, L.size) * L.w.size + curve(per, L.period) * L.w.period + wd * L.w.wind
+    );
+  }
+  return out;
 }
+
+/** 현재 선택된 레벨 기준 점수. h.scores 가 null 이면(파고 결측) null. */
+const scoreOf = h => (h.scores ? h.scores[state.level] : null);
 
 const GRADES = [
   [78, "최상",   "var(--r-exc)"],
@@ -637,7 +704,7 @@ async function loadSpot(spot){
       airT:    j < 0 ? null : pick(A.temperature_2m, j)
     };
     h.off = offshoreness(h.windDir, spot.facing);
-    h.score = scoreHour(h);
+    h.scores = scoreHourAllLevels(h);
     const d = t.slice(0, 10);
     if (!byDate.has(d)) byDate.set(d, []);
     byDate.get(d).push(h);
@@ -648,22 +715,31 @@ async function loadSpot(spot){
   return data;
 }
 
-/* ============================ 하루 요약 ============================ */
+/* ============================ 하루 요약 ============================
+   avg/top/best 는 현재 선택된 레벨(state.level) 기준이고, avgByLevel 에는 세
+   레벨 평균을 다 담아 준다 — 히어로의 레벨 선택 버튼이 각자 점수를 같이
+   보여줘야 해서(선택기 겸 비교표) 한 번에 계산해 둔다. */
 function summarize(hours){
-  const valid = hours.filter(h => isNum(h.score));
+  const valid = hours.filter(h => isNum(scoreOf(h)));
   if (!valid.length) return null;
 
   const peak = valid.reduce((a, b) => (b.waveH || 0) > (a.waveH || 0) ? b : a);
-  const avg  = Math.round(valid.reduce((s, h) => s + h.score, 0) / valid.length);
+  const avg  = Math.round(valid.reduce((s, h) => s + scoreOf(h), 0) / valid.length);
+
+  const avgByLevel = {};
+  for (const key of LEVEL_KEYS){
+    const xs = hours.map(h => h.scores && h.scores[key]).filter(isNum);
+    avgByLevel[key] = xs.length ? Math.round(xs.reduce((s, v) => s + v, 0) / xs.length) : null;
+  }
 
   // 추천 시간대: 05~20시 중 최고점에서 좌우로 -10점 이내까지 확장
   const day = valid.filter(h => h.hour >= 5 && h.hour <= 20);
   const pool = day.length ? day : valid;
-  const top = pool.reduce((a, b) => b.score > a.score ? b : a);
+  const top = pool.reduce((a, b) => scoreOf(b) > scoreOf(a) ? b : a);
   const idx = pool.indexOf(top);
   let a = idx, b = idx;
-  while (a > 0 && pool[a-1].score >= top.score - 10) a--;
-  while (b < pool.length - 1 && pool[b+1].score >= top.score - 10) b++;
+  while (a > 0 && scoreOf(pool[a-1]) >= scoreOf(top) - 10) a--;
+  while (b < pool.length - 1 && scoreOf(pool[b+1]) >= scoreOf(top) - 10) b++;
 
   const seaTs = valid.map(h => h.seaT).filter(isNum);
   const winds = valid.map(h => h.windSpd).filter(isNum);
@@ -680,6 +756,7 @@ function summarize(hours){
 
   return {
     avg: avg,
+    avgByLevel: avgByLevel,
     top: top,
     offAvg: offAvg,
     best: { from: pool[a].hour, to: pool[b].hour },
@@ -731,8 +808,9 @@ function renderChart(hours){
 
   const bw = CH.iw / n;
   const strip = hours.map((h, i) => {
-    const g = grade(h.score);
-    const op = isNum(h.score) ? (0.28 + (h.score / 100) * 0.72) : 0.18;
+    const sc = scoreOf(h);
+    const g = grade(sc);
+    const op = isNum(sc) ? (0.28 + (sc / 100) * 0.72) : 0.18;
     return '<rect x="' + (CH.L + i * bw + 0.6).toFixed(1) + '" y="' + (CH.T + CH.ih + 9).toFixed(1) +
       '" width="' + Math.max(1, bw - 1.2).toFixed(1) + '" height="7" rx="2" fill="' + g[2] +
       '" opacity="' + op.toFixed(2) + '"/>';
@@ -771,7 +849,7 @@ function renderTable(hours){
   const now = nowKST();
   const todayStr = ymd(now);
   const rows = hours.map((h, i) => {
-    const g = grade(h.score);
+    const g = grade(scoreOf(h));
     const wl = windLabel(h.off);
     const isNow = h.time.slice(0, 10) === todayStr && h.hour === now.getHours();
     const per = isNum(h.swellP) ? h.swellP : h.waveP;
@@ -791,7 +869,7 @@ function renderTable(hours){
 
   return '<div class="tscroll"><table><thead><tr>' +
     '<th>시각</th><th>파고</th><th class="num">주기</th><th>파향</th>' +
-    '<th class="num">풍속</th><th>풍향</th><th class="num">수온</th><th>컨디션</th>' +
+    '<th class="num">풍속</th><th>풍향</th><th class="num">수온</th><th>컨디션 · ' + esc(LEVELS[state.level].short) + '</th>' +
     '</tr></thead><tbody id="tbody">' + rows + '</tbody></table></div>';
 }
 
@@ -832,7 +910,48 @@ function renderHero(spot, dateStr, sm){
     '</div><div>' +
       '<div class="grade" style="color:' + g[2] + '">' + g[1] + '</div>' +
       '<div class="best">추천 ' + pad(sm.best.from) + ':00–' + pad(sm.best.to) + ':00</div>' +
-    '</div></div></div>';
+      levelSizeWarning(sm.peakWave) +
+    '</div></div>' +
+    renderLevelPicker(sm) +
+  '</div>';
+}
+
+/** 레벨별 "이 이상은 무리" 사이즈 경고.
+    점수만으로는 위험이 안 읽히는 구간이 있다 — 5m 파도라도 주기가 길고 오프쇼어면
+    비기너 점수가 34점(=아쉬움)에서 더 안 떨어진다. "아쉬움"은 아쉬운 거지 위험한
+    게 아니라서, 크기 자체를 따로 못 박아 준다. 숏보더는 상한을 두지 않는다. */
+function levelSizeWarning(peakWave){
+  const max = LEVELS[state.level].maxSafe;
+  if (!isNum(peakWave) || !isNum(max) || peakWave <= max) return "";
+  return '<div class="lvl-warn">⚠ ' + esc(LEVELS[state.level].label) + '에겐 큰 파도예요 · 최고 ' +
+    peakWave.toFixed(1) + "m</div>";
+}
+
+/** 레벨 선택기 겸 비교표. 버튼마다 그 레벨의 점수를 같이 보여줘서, 굳이 눌러보지
+    않아도 "오늘은 롱보드가 낫겠다" 같은 판단이 바로 되게 했다. */
+function renderLevelPicker(sm){
+  return '<div class="lvl-row" role="group" aria-label="서핑 레벨 선택">' +
+    LEVEL_KEYS.map(key => {
+      const v = sm.avgByLevel ? sm.avgByLevel[key] : null;
+      const lg = grade(v);
+      const on = key === state.level;
+      return '<button type="button" class="lvl-btn' + (on ? " on" : "") + '" data-level="' + key + '"' +
+        (on ? ' aria-current="true"' : "") + '>' +
+        '<span class="lvl-name">' + LEVELS[key].label + '</span>' +
+        '<span class="lvl-score" style="color:' + (isNum(v) ? lg[2] : "var(--dim)") + '">' +
+          (isNum(v) ? v : "–") + "</span>" +
+      "</button>";
+    }).join("") +
+  "</div>";
+}
+
+/** 레벨 버튼 배선. 레벨이 바뀌면 화면 전체를 다시 그린다 — 차트 색, 표의 컨디션,
+    추천 시간대, 날짜 칩까지 전부 레벨을 따라가야 해서 부분 갱신이 더 번거롭다.
+    데이터는 캐시되어 있어 재요청은 없다. */
+function wireLevelPicker(rerender){
+  $$(".lvl-btn").forEach(b => b.addEventListener("click", () => {
+    if (setLevel(b.dataset.level)) rerender();
+  }));
 }
 
 /* 차트 ↔ 표 상호작용 */
@@ -850,7 +969,7 @@ function wireChart(hours){
   };
 
   const show = i => {
-    const h = hours[i], g = grade(h.score);
+    const h = hours[i], g = grade(scoreOf(h));
     const x = chartX(i, n), y = chartY(h.waveH, yMax);
 
     cur.setAttribute("x1", x); cur.setAttribute("x2", x); cur.setAttribute("opacity", ".7");
@@ -891,7 +1010,23 @@ function wireChart(hours){
 }
 
 /* ============================ 상태 & 라우팅 ============================ */
-const state = { spot: "jukdo", date: ymd(nowKST()) };
+// level 은 URL 에 넣지 않는다 — 스팟·날짜와 달리 "어디를 보고 있나"가 아니라
+// "내가 어떤 서퍼인가"라는 개인 설정이라, 링크를 받은 사람은 자기 레벨 기준으로
+// 보는 게 맞다. 그래서 localStorage 에만 남긴다.
+const state = { spot: "jukdo", date: ymd(nowKST()), level: DEFAULT_LEVEL };
+
+function loadLevelPref(){
+  try {
+    const saved = localStorage.getItem("wt:level");
+    if (saved && LEVELS[saved]) state.level = saved;
+  } catch (_){ /* 프라이빗 모드 등에서 접근이 막힐 수 있다 */ }
+}
+function setLevel(key){
+  if (!LEVELS[key] || key === state.level) return false;
+  state.level = key;
+  try { localStorage.setItem("wt:level", key); } catch (_){}
+  return true;
+}
 
 function readURL(){
   const q = new URLSearchParams(location.search);
@@ -1056,7 +1191,7 @@ async function renderForecastPage(){
     renderHero(spot, state.date, sm) +
     '<div class="card">' +
       "<h2>시간대별 파고</h2>" +
-      '<div class="sub">아래 막대 색은 서핑 컨디션 점수 · 그래프를 짚으면 상세가 나옵니다</div>' +
+      '<div class="sub">아래 막대 색은 ' + esc(LEVELS[state.level].label) + ' 기준 컨디션 점수 · 그래프를 짚으면 상세가 나옵니다</div>' +
       renderChart(hours) +
       '<div class="legend">' +
         GRADES.slice().reverse().map(g =>
@@ -1070,6 +1205,7 @@ async function renderForecastPage(){
     "</div>";
 
   wireChart(hours);
+  wireLevelPicker(renderForecastPage);
 }
 
 /* ============================ 파도 제보 게시판 ============================
@@ -1184,7 +1320,7 @@ async function loadHomeToday(my, spot){
     el.innerHTML =
       renderAdvisoryBanner(advisory, spot.id) +
       renderHero(spot, dateStr, sm) +
-      '<div class="sub">시간대별 파고 · 그래프를 짚으면 상세가 나옵니다</div>' +
+      '<div class="sub">시간대별 파고 · 막대는 ' + esc(LEVELS[state.level].label) + ' 기준 컨디션</div>' +
       renderChart(hours) +
       '<div class="legend">' +
         GRADES.slice().reverse().map(g =>
@@ -1194,6 +1330,7 @@ async function loadHomeToday(my, spot){
         esc(new URLSearchParams({ spot: spot.id, date: dateStr }).toString()) +
         '" data-nav class="home-more">전체 예보 보기 →</a></div>';
     wireChart(hours);
+    wireLevelPicker(() => loadHomeToday(my, spot));
   } catch (e){
     if (my !== reqId) return;
     el.innerHTML = '<div class="state"><div class="err">예보를 불러오지 못했습니다.</div></div>';
@@ -1542,6 +1679,7 @@ document.addEventListener("click", e => {
 });
 
 /* ============================ init ============================ */
+loadLevelPref();
 buildSpotSelect();
 $("#date").value = state.date;
 

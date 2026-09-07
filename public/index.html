@@ -1090,14 +1090,25 @@ async function loadHomeToday(my, spot){
     const [data, advisory] = await Promise.all([ loadSpot(spot), loadAdvisory() ]);
     if (my !== reqId) return;
     const dateStr = data.dates.indexOf(today) >= 0 ? today : data.dates[0];
-    const sm = summarize(data.byDate.get(dateStr) || []);
+    const hours = data.byDate.get(dateStr) || [];
+    const sm = summarize(hours);
     if (!sm){ el.innerHTML = '<div class="state">오늘의 예보 데이터가 아직 없습니다.</div>'; return; }
+    // 시간대별 파고 그래프는 /forecast 와 같은 renderChart/wireChart 를 그대로
+    // 재사용한다 — 별도 .card 로 감싸지 않고 "오늘의 파도" 카드 안에 이어 붙여서
+    // 홈 화면다운 한 덩어리로 보이게 한다(헤딩만 .sub 로 가볍게).
     el.innerHTML =
       renderAdvisoryBanner(advisory, spot.id) +
       renderHero(spot, dateStr, sm) +
+      '<div class="sub">시간대별 파고 · 그래프를 짚으면 상세가 나옵니다</div>' +
+      renderChart(hours) +
+      '<div class="legend">' +
+        GRADES.slice().reverse().map(g =>
+          '<span><i class="dot" style="background:' + g[2] + '"></i>' + g[1] + "</span>").join("") +
+      "</div>" +
       '<div class="home-more-row"><a href="/forecast?' +
         esc(new URLSearchParams({ spot: spot.id, date: dateStr }).toString()) +
         '" data-nav class="home-more">전체 예보 보기 →</a></div>';
+    wireChart(hours);
   } catch (e){
     if (my !== reqId) return;
     el.innerHTML = '<div class="state"><div class="err">예보를 불러오지 못했습니다.</div></div>';

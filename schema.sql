@@ -100,3 +100,45 @@ CREATE TABLE IF NOT EXISTS spot_daily (
   updated_at TEXT NOT NULL,
   PRIMARY KEY (spot_id, date)
 );
+
+-- GPS 세션 기록(docs/gps-tracker-plan.md 참고). 계정이 없다 — Strava 로그인은
+-- 한국에서 신규 앱 설치 자체가 막혀 있어(2025년 3월부터) 포기했고, 대신
+-- device_token(클라이언트가 crypto.randomUUID() 로 만들어 localStorage 에 두는
+-- 임의 문자열)으로 소유권만 식별한다. 실명·이메일 등 실제 신원은 아예 안 받는다.
+--
+-- 트랙 좌표(track 컬럼)는 원래 R2에 두려 했는데, R2는 대시보드에서 수동으로
+-- 한 번 활성화해야 API 로 쓸 수 있다(이 계정은 아직 안 돼 있음). 실제 세션
+-- 크기가 생각보다 작아서(1Hz 90분 세션도 ~200KB) 그냥 D1 TEXT 컬럼에 넣기로
+-- 했다 — spot_daily.hourly 와 같은 자리 기반 JSON 배열 패턴이다. 트래픽이
+-- 커지면 그때 R2로 옮기면 되는데, API 계약(엔드포인트 모양)은 안 바뀐다.
+--
+-- track 형식: [[위도, 경도, 고도, 시작 후 경과초, 심박(없으면 null)], ...]
+-- 절대시각이 아니라 "시작 후 경과초"를 쓴다 — started_at 이 이미 시작 시각을
+-- 갖고 있어 반복될 필요가 없고, 숫자가 짧아 저장 공간도 아낀다.
+--
+-- wave_count·longest_ride_m 은 지금(Phase 2)은 NULL 이다. 파도 감지 알고리즘은
+-- Phase 3 몫이라, 아직 없는 기능을 있는 척 숫자로 채우지 않는다.
+--
+-- 레이트리밋은 파도 제보(reports)와 같은 패턴이다 — 별도 로그 테이블 없이 이
+-- 테이블 자체에 ip_hash 를 두고 "최근 N분 내 같은 해시의 행 수"로 판단한다.
+-- 세션은 reports 처럼 그 자체가 보존할 콘텐츠라, 안전 Q&A(safety_asks)처럼
+-- 카운터 전용 테이블을 따로 둘 이유가 없다.
+CREATE TABLE IF NOT EXISTS sessions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  device_token TEXT NOT NULL,
+  spot_id TEXT,                          -- 13개 스팟에서 3km 이내로 못 찾으면 NULL
+  source TEXT NOT NULL DEFAULT 'upload', -- 지금은 'upload' 뿐. 'strava' 는 보류된 자리만 남겨둠
+  started_at TEXT NOT NULL,
+  ended_at TEXT NOT NULL,
+  duration_sec INTEGER NOT NULL,
+  distance_m REAL NOT NULL,
+  point_count INTEGER NOT NULL,
+  wave_count INTEGER,
+  longest_ride_m REAL,
+  visibility TEXT NOT NULL DEFAULT 'private',
+  track TEXT NOT NULL,
+  ip_hash TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_device ON sessions(device_token, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sessions_ip_time ON sessions(ip_hash, created_at);

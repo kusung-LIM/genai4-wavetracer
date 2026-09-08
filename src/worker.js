@@ -618,6 +618,255 @@ async function handleForecast(request, env){
   }
 }
 
+/* ---------- GPS 세션 기록 (/api/sessions) ----------
+   계정이 없다. Strava 로그인은 한국에서 신규 앱 설치 자체가 막혀 있어(2025년
+   3월부터, docs/gps-tracker-plan.md 참고) 포기했고, 대신 device_token 으로만
+   소유권을 식별한다 — 클라이언트가 crypto.randomUUID() 로 만들어 localStorage
+   에 두고 매 요청에 실어 보낸다. 실명·이메일 등 실제 신원은 아예 받지 않는다.
+
+   GPX/TCX 파싱은 브라우저에서 한다(DOMParser, 워커 런타임엔 없다). 여기는
+   이미 파싱된 좌표 배열만 받고, 거리·시간 통계는 파일이 자체 계산해 넣은 값을
+   믿지 않고 여기서 직접 재계산한다 — 실측한 삼성헬스 GPX 의 <exerciseinfo>
+   요약값(avgspeed, elevationgain/loss)이 실제 궤적과 안 맞았던 걸 확인했기
+   때문이다(계획 문서 참고). 같은 원칙을 파일 → 워커 경계에도 적용한다: 클라이언트가
+   보낸 좌표는 신뢰하고 쓰되, 거기서 파생되는 숫자(거리·시간·매칭 스팟)는 전부
+   서버가 원시 좌표에서 새로 계산한다.
+
+   트랙 저장은 R2 대신 D1 TEXT 컬럼이다(schema.sql 의 sessions 테이블 주석 참고) —
+   R2가 이 계정에서 아직 대시보드 수동 활성화가 안 돼 있고, 실제 세션 크기가
+   D1 컬럼 하나로 충분히 작다(1Hz 90분도 ~200KB). */
+const SESSION_SALT = "wavetracer-session-v1-salt"; // reports/safety 와 해시 공간을 분리
+const SESSION_RATE_LIMIT_MAX = 30;   // 과거 기록을 한 번에 여러 개 올리는 경우를 고려해 reports(5)보다 넉넉히
+const SESSION_RATE_LIMIT_WINDOW_MIN = 10;
+const SESSION_MATCH_RADIUS_M = 3000; // 이 안이어야 "그 스팟에서 탄 세션"으로 본다
+const SESSION_MIN_POINTS = 5;
+const SESSION_MAX_POINTS = 20000;    // 1Hz 기준 5시간 이상 — 정상 세션보다 넉넉한 상한
+const SESSION_MAX_DURATION_SEC = 6 * 3600;
+
+function haversineM(lat1, lon1, lat2, lon2){
+  const R = 6371000, toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/** 임의 시각을 KST 날짜/시로 바꾼다. spot_daily 는 Open-Meteo 의
+    timezone=Asia/Seoul 응답을 그대로 저장하므로(date·hourly[i][0] 모두 KST
+    달력 기준), 세션 시작 시각도 같은 기준으로 바꿔야 daily 테이블과 맞는다. */
+function toKSTDateHour(ms){
+  const p = {};
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", hour12: false,
+  }).formatToParts(new Date(ms)).forEach(x => { p[x.type] = x.value; });
+  return { date: `${p.year}-${p.month}-${p.day}`, hour: p.hour === "24" ? 0 : +p.hour };
+}
+
+/** 포인트 전체의 중심점에서 가장 가까운 스팟을 찾는다. 반경 밖이면(예: 테스트로
+    찍은 내륙 지점) 억지로 가장 가까운 걸 골라 붙이지 않고 null 로 둔다 — 틀린
+    스팟에 매칭하는 것보다 "매칭 안 됨"이 정직하다. */
+function matchSpot(points){
+  let sumLat = 0, sumLon = 0;
+  for (const p of points){ sumLat += p[0]; sumLon += p[1]; }
+  const cLat = sumLat / points.length, cLon = sumLon / points.length;
+  let best = null, bestDist = Infinity;
+  for (const id of SPOT_IDS){
+    const d = haversineM(cLat, cLon, SPOTS[id].lat, SPOTS[id].lon);
+    if (d < bestDist){ bestDist = d; best = id; }
+  }
+  return bestDist <= SESSION_MATCH_RADIUS_M ? best : null;
+}
+
+function rowToSession(r){
+  return {
+    id: r.id, spotId: r.spot_id, source: r.source,
+    startedAt: r.started_at, endedAt: r.ended_at,
+    durationSec: r.duration_sec, distanceM: r.distance_m,
+    pointCount: r.point_count, waveCount: r.wave_count,
+    longestRideM: r.longest_ride_m, visibility: r.visibility,
+    createdAt: r.created_at,
+  };
+}
+
+async function handleSessions(request, env, ctx){
+  if (request.method === "GET") return handleSessionsGet(request, env);
+  if (request.method === "POST") return handleSessionsPost(request, env, ctx);
+  return json({ error: "method_not_allowed", message: "허용되지 않은 메서드입니다." }, 405, { allow: "GET, POST" });
+}
+
+async function handleSessionsGet(request, env){
+  if (!env.DB) return json({ ready: false, sessions: [] });
+
+  const url = new URL(request.url);
+  const token = (url.searchParams.get("token") || "").trim();
+  if (token.length < 8 || token.length > 100){
+    return json({ error: "validation", message: "기기 토큰이 없거나 올바르지 않습니다." }, 400);
+  }
+
+  try {
+    const { results } = await env.DB.prepare(
+      "SELECT id, spot_id, source, started_at, ended_at, duration_sec, distance_m," +
+      " point_count, wave_count, longest_ride_m, visibility, created_at" +
+      " FROM sessions WHERE device_token = ?1 ORDER BY started_at DESC LIMIT 200"
+    ).bind(token).all();
+    return json({ ready: true, sessions: (results || []).map(rowToSession) });
+  } catch (_){
+    // 부가 기능이 예보 화면을 막을 이유가 없다 — advisory/reports 와 같은 원칙.
+    return json({ ready: false, sessions: [] });
+  }
+}
+
+async function handleSessionsPost(request, env, ctx){
+  if (!env.DB){
+    return json({ error: "no_database", message: "기록 저장소가 아직 준비되지 않았습니다. 잠시 후 다시 시도해주세요." }, 503);
+  }
+
+  let raw;
+  try { raw = await request.json(); } catch (_){
+    return json({ error: "validation", message: "요청 본문을 읽을 수 없습니다." }, 400);
+  }
+  if (!raw || typeof raw !== "object") raw = {};
+
+  const deviceToken = typeof raw.deviceToken === "string" ? raw.deviceToken.trim() : "";
+  if (deviceToken.length < 8 || deviceToken.length > 100){
+    return json({ error: "validation", message: "기기 토큰이 없거나 올바르지 않습니다." }, 400);
+  }
+
+  const rawPoints = Array.isArray(raw.points) ? raw.points : null;
+  if (!rawPoints || rawPoints.length < SESSION_MIN_POINTS){
+    return json({ error: "validation", message: `GPS 포인트가 너무 적습니다(최소 ${SESSION_MIN_POINTS}개).` }, 400);
+  }
+  if (rawPoints.length > SESSION_MAX_POINTS){
+    return json({ error: "validation", message: "GPS 포인트가 너무 많습니다 — 파일을 확인해주세요." }, 400);
+  }
+
+  // 포인트 형식: [위도, 경도, 고도|null, epoch밀리초, 심박|null]
+  const points = [];
+  for (const p of rawPoints){
+    if (!Array.isArray(p) || p.length < 4){
+      return json({ error: "validation", message: "GPS 포인트 형식이 올바르지 않습니다." }, 400);
+    }
+    const [lat, lon, ele, t, hr] = p;
+    if (!Number.isFinite(lat) || lat < -90 || lat > 90){
+      return json({ error: "validation", message: "위도 값이 올바르지 않습니다." }, 400);
+    }
+    if (!Number.isFinite(lon) || lon < -180 || lon > 180){
+      return json({ error: "validation", message: "경도 값이 올바르지 않습니다." }, 400);
+    }
+    if (!Number.isFinite(t) || t <= 0){
+      return json({ error: "validation", message: "시각 값이 올바르지 않습니다." }, 400);
+    }
+    points.push([lat, lon, Number.isFinite(ele) ? ele : null, t, Number.isFinite(hr) ? hr : null]);
+  }
+  points.sort((a, b) => a[3] - b[3]);
+
+  const startedAtMs = points[0][3], endedAtMs = points[points.length - 1][3];
+  const durationSec = Math.round((endedAtMs - startedAtMs) / 1000);
+  if (durationSec <= 0){
+    return json({ error: "validation", message: "기록 시간이 0초 이하입니다." }, 400);
+  }
+  if (durationSec > SESSION_MAX_DURATION_SEC){
+    return json({ error: "validation", message: "기록 시간이 6시간을 넘습니다 — 파일을 확인해주세요." }, 400);
+  }
+
+  let distanceM = 0;
+  for (let i = 1; i < points.length; i++){
+    distanceM += haversineM(points[i - 1][0], points[i - 1][1], points[i][0], points[i][1]);
+  }
+  const spotId = matchSpot(points);
+
+  // 저장용 트랙은 절대시각 대신 "시작 후 경과초"로 압축한다 — started_at 이
+  // 이미 시작 시각을 갖고 있어 매 포인트마다 반복될 필요가 없다.
+  const track = points.map(p => [p[0], p[1], p[2], Math.round((p[3] - startedAtMs) / 1000), p[4]]);
+
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+  const ipHash = await sha256Hex(ip + SESSION_SALT);
+  const windowStart = new Date(Date.now() - SESSION_RATE_LIMIT_WINDOW_MIN * 60 * 1000).toISOString();
+
+  try {
+    const { results: recent } = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM sessions WHERE ip_hash = ?1 AND created_at > ?2"
+    ).bind(ipHash, windowStart).all();
+    if (((recent && recent[0] && recent[0].n) || 0) >= SESSION_RATE_LIMIT_MAX){
+      return json({ error: "rate_limited", message: "짧은 시간에 너무 많은 기록이 업로드됐습니다. 잠시 후 다시 시도해주세요." }, 429);
+    }
+
+    const startedAtIso = new Date(startedAtMs).toISOString();
+    const endedAtIso = new Date(endedAtMs).toISOString();
+    const createdAt = new Date().toISOString();
+    const distanceRounded = Math.round(distanceM * 10) / 10;
+
+    const ins = await env.DB.prepare(
+      "INSERT INTO sessions (device_token, spot_id, source, started_at, ended_at, duration_sec," +
+      " distance_m, point_count, wave_count, longest_ride_m, visibility, track, ip_hash, created_at)" +
+      " VALUES (?1,?2,'upload',?3,?4,?5,?6,?7,NULL,NULL,'private',?8,?9,?10)"
+    ).bind(
+      deviceToken, spotId, startedAtIso, endedAtIso, durationSec,
+      distanceRounded, points.length, JSON.stringify(track), ipHash, createdAt
+    ).run();
+
+    return json({
+      session: {
+        id: ins.meta && ins.meta.last_row_id, spotId, source: "upload",
+        startedAt: startedAtIso, endedAt: endedAtIso, durationSec,
+        distanceM: distanceRounded, pointCount: points.length,
+        waveCount: null, longestRideM: null, visibility: "private", createdAt,
+      },
+    }, 201);
+  } catch (err){
+    return json({ error: "no_database", message: "기록 저장 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요." }, 503);
+  }
+}
+
+/** /api/sessions/:id — GET 상세, DELETE 삭제. 둘 다 device_token 이 그 세션의
+    소유자와 일치해야 한다(그 외엔 남의 기록인지조차 알려주지 않도록 403). */
+async function handleSessionDetail(request, env, idStr){
+  if (!env.DB) return json({ error: "no_database", message: "기록 저장소가 아직 준비되지 않았습니다." }, 503);
+  if (request.method !== "GET" && request.method !== "DELETE"){
+    return json({ error: "method_not_allowed", message: "허용되지 않은 메서드입니다." }, 405, { allow: "GET, DELETE" });
+  }
+
+  const id = parseInt(idStr, 10);
+  if (!Number.isInteger(id) || id <= 0){
+    return json({ error: "validation", message: "올바르지 않은 기록 ID입니다." }, 400);
+  }
+
+  const url = new URL(request.url);
+  const token = (url.searchParams.get("token") || "").trim();
+  if (!token){
+    return json({ error: "validation", message: "기기 토큰이 필요합니다." }, 400);
+  }
+
+  try {
+    const row = await env.DB.prepare("SELECT * FROM sessions WHERE id = ?1").bind(id).first();
+    if (!row) return json({ error: "not_found", message: "기록을 찾을 수 없습니다." }, 404);
+    if (row.device_token !== token){
+      return json({ error: "forbidden", message: "이 기록에 접근할 권한이 없습니다." }, 403);
+    }
+
+    if (request.method === "DELETE"){
+      await env.DB.prepare("DELETE FROM sessions WHERE id = ?1").bind(id).run();
+      return json({ deleted: true });
+    }
+
+    // 그날 그 시간 컨디션. spot_daily 는 스팟당 하루 하나(hourly 24개짜리 배열)라,
+    // 하루치를 통째로 돌려주고 프론트가 기존 expandDailyHours()/summarize() 로
+    // 처리한다 — 예보 화면·챗봇과 정확히 같은 계산 경로를 타서 숫자가 어긋나지 않는다.
+    let dailyHourly = null;
+    if (row.spot_id){
+      const { date } = toKSTDateHour(new Date(row.started_at).getTime());
+      const daily = await env.DB.prepare(
+        "SELECT hourly FROM spot_daily WHERE spot_id = ?1 AND date = ?2"
+      ).bind(row.spot_id, date).first();
+      if (daily) dailyHourly = JSON.parse(daily.hourly);
+    }
+
+    return json({ session: rowToSession(row), track: JSON.parse(row.track), dailyHourly });
+  } catch (_){
+    return json({ error: "server_error", message: "기록을 불러오지 못했습니다." }, 500);
+  }
+}
+
 function json(data, status = 200, extraHeaders){
   return new Response(JSON.stringify(data), {
     status,
@@ -637,6 +886,9 @@ export default {
     if (url.pathname === "/api/chat") return handleChat(request, env, ctx);
     if (url.pathname === "/api/conditions") return handleConditions(request, env);
     if (url.pathname === "/api/forecast") return handleForecast(request, env);
+    if (url.pathname === "/api/sessions") return handleSessions(request, env, ctx);
+    const sessionIdMatch = url.pathname.match(/^\/api\/sessions\/(\d+)$/);
+    if (sessionIdMatch) return handleSessionDetail(request, env, sessionIdMatch[1]);
 
     // run_worker_first 가 "/api/*" 만 여기로 보내므로 원칙적으로 도달하지 않지만,
     // 방어적으로 정적 자산 폴백을 남겨둔다.

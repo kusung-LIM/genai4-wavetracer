@@ -85,6 +85,14 @@ CREATE TABLE IF NOT EXISTS spot_conditions (
 --   [[시각, 파고, 주기, 너울고, 너울주기, 풍속, 풍향], ...]
 -- 프론트가 이걸 펼쳐 기존 summarize() 를 그대로 돌리므로, 챗봇이 말하는 점수와
 -- 예보 화면에 뜨는 점수가 같은 계산에서 나온다.
+--
+-- 과거 날짜를 지우지 않는다(예전엔 매 실행 후 지웠다). GPS 세션 기록이 "그날
+-- 그 시간 컨디션"과 세션을 대조하려면 이 이력이 있어야 한다 — 한번 지우면
+-- 그 시점 데이터는 다시 만들 수 없다. 지워도 하루 쓰기량은 그대로라(91행 갱신은
+-- 보존 여부와 무관) 안 지우는 쪽의 비용은 저장 공간뿐이고, 그마저 스팟당 하루
+-- 1행(1KB 안팎)만 늘어 연간 5MB 수준이다(자세한 계산은 src/worker.js 의
+-- refreshConditions 주석 참고). 미래 예보만 필요한 조회(/api/forecast)는
+-- 워커에서 date >= 오늘 로 걸러 읽는다.
 CREATE TABLE IF NOT EXISTS spot_daily (
   spot_id TEXT NOT NULL,
   date TEXT NOT NULL,

@@ -544,8 +544,21 @@ async function refreshConditions(env){
 
   if (writes.length) await env.DB.batch(writes);
   if (dailyWrites.length) await env.DB.batch(dailyWrites);
-  // 지난 날짜는 쌓아둘 이유가 없다. 안 지우면 매일 13행씩 늘어난다.
-  await env.DB.prepare("DELETE FROM spot_daily WHERE date < ?1").bind(target.slice(0, 10)).run();
+  // 예전엔 여기서 지난 날짜를 지웠다(DELETE FROM spot_daily WHERE date < 오늘).
+  // 지금은 일부러 지우지 않는다 — GPS 세션 기록(계획 문서: docs/gps-tracker-plan.md)이
+  // "그날 그 시간 컨디션"과 세션을 대조하려면 이 이력이 있어야 하는데, 한번 지우면
+  // 그 시점 데이터는 다시 만들 수 없다.
+  //
+  // 지워도 하루 쓰기량(8,736회, D1 Free 10만 회/일 한도의 9%)은 똑같다 — spot_daily
+  // 는 매 실행 91행을 갱신(ON CONFLICT UPDATE)하는데, 이 갱신 횟수는 보존 여부와
+  // 무관하다. 늘어나는 건 저장 행 수뿐이고, 하루에 스팟당 날짜 하나(13행)씩만
+  // 늘어난다 — 행당 1KB 안팎이라 연간 5MB 수준(5GB 무료 한도에 한참 못 미침).
+  //
+  // 다만 보존되는 값의 성격을 알아둬야 한다: 어떤 날짜가 7일 창을 벗어나기 직전,
+  // 즉 그날의 마지막 실행에서 기록된 예보값이 그대로 남는다 — 사후 실측 재해석이
+  // 아니라 "그날 마지막으로 갱신됐을 때의 예보 스냅샷"이다. 당일 지난 시간대는
+  // Open-Meteo 가 최신 관측에 가깝게 보정해 줄 가능성이 높지만, 이건 확인된 사실이
+  // 아니라 정황상 추정이다.
 
   return { ok: true, spots: writes.length, days: dailyWrites.length, observedAt: target };
 }
@@ -577,7 +590,14 @@ async function handleConditions(request, env){
 
 /** 7일치 시간별 예보. 챗봇이 미래 날짜 질문에 답하려면 필요하다.
     응답이 100KB 안팎이라 프론트는 챗봇을 처음 열 때만(지연 로딩) 부른다 —
-    예보만 보고 가는 방문자는 이 비용을 내지 않는다. */
+    예보만 보고 가는 방문자는 이 비용을 내지 않는다.
+
+    spot_daily 는 이제 과거 날짜를 지우지 않고 그대로 쌓아둔다(GPS 세션 기록과
+    대조하기 위해 — refreshConditions 의 주석 참고). 이 엔드포인트는 "미래
+    예보"만 쓰는 용도라 여기서 오늘 이후 날짜로 걸러내야 한다 — 안 그러면
+    시간이 지날수록 챗봇에 넘기는 페이로드에 안 쓰는 과거 데이터가 계속 쌓인다.
+    과거 세션 조회 화면이 생기면 그건 별도 엔드포인트(예: /api/history)로
+    필터 없이 읽으면 된다. */
 async function handleForecast(request, env){
   if (request.method !== "GET"){
     return json({ error: "method_not_allowed", message: "허용되지 않은 메서드입니다." }, 405, { allow: "GET" });
@@ -585,9 +605,10 @@ async function handleForecast(request, env){
   if (!env.DB) return json({ ready: false, days: [] });
 
   try {
+    const today = nowHourKST().slice(0, 10);
     const { results } = await env.DB.prepare(
-      "SELECT spot_id, date, hourly FROM spot_daily ORDER BY date, spot_id"
-    ).all();
+      "SELECT spot_id, date, hourly FROM spot_daily WHERE date >= ?1 ORDER BY date, spot_id"
+    ).bind(today).all();
     const days = (results || []).map(r => ({
       spotId: r.spot_id, date: r.date, hourly: JSON.parse(r.hourly),
     }));

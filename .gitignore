@@ -2,3 +2,9 @@ node_modules/
 .wrangler/
 .dev.vars
 .DS_Store
+
+# 실측용 GPX/TCX 샘플. 실제 좌표(집·직장 등)가 그대로 들어있는 경우가 많아
+# git에 올리지 않는다 — 한 번 커밋되면 기록에서 지워도 히스토리에 남는다.
+*.gpx
+*.tcx
+*.fit

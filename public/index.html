@@ -10,6 +10,15 @@
 <meta property="og:description" content="원하는 날짜의 파고·주기·바람을 시간대별로. 국내 서핑 포인트 13곳.">
 <meta property="og:type" content="website">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8C%8A%3C/text%3E%3C/svg%3E">
+
+<!-- PWA: 매니페스트 + 아이콘 + 서비스워커(하단 스크립트에서 등록) 세 가지가
+     갖춰져야 안드로이드 크롬이 "홈 화면에 추가"를 정식 설치로 제안한다. -->
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="WaveTracer">
+<meta name="mobile-web-app-capable" content="yes">
 <style>
 :root{
   --bg:#06121d; --bg2:#0a1c2b;
@@ -2436,6 +2445,15 @@ document.addEventListener("click", e => {
 loadLevelPref();
 buildSpotSelect();
 initChat();
+
+// PWA 설치 가능 요건(매니페스트+아이콘+서비스워커) 중 마지막 조각.
+// 실패해도(구형 브라우저, 프라이빗 모드 등) 조용히 넘어간다 — 설치 기능이
+// 없어질 뿐 예보 화면은 그대로 동작해야 한다.
+if ("serviceWorker" in navigator){
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  });
+}
 $("#date").value = state.date;
 
 $("#spot").addEventListener("change", e => {

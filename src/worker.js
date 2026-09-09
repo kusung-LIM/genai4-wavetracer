@@ -17,7 +17,17 @@
 // KMA_SERVICE_KEY 가 아직 없으면 { ready:false } 를 돌려주고, 프론트는 이를
 // "연동 준비 중" 배너로 보여준다. 시크릿을 넣는 순간 재배포 없이 바로 실데이터로 전환된다.
 
-const KMA_ENDPOINT = "https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnList";
+// getWthrWrnList: 지금 활성 특보가 있는 관서(지방기상청) 목록만 준다 — 지역명이
+// 아니라 stnId(관서 코드, 예: 108=본청/서울, 159=부산, 143=대구, 156=광주, 133=대전,
+// 184=제주, 105=강원)로 온다. 관서 하나가 강풍·풍랑 등 여러 특보를 한 번에
+// 발표하므로, 실제 "어느 해상구역이 몇 단계인지"는 이 목록만으로는 못 정한다.
+// getWthrWrnMsg: 그 관서의 특정 발표 건 통보문 "본문"을 준다. t6 필드가
+//   "o 강풍주의보 : ...\no 풍랑경보 : 동해남부남쪽안쪽먼바다, ...\no 풍랑주의보 : 동해남부앞바다(...), ..."
+// 형태로, 특보종류별 해당 구역 이름을 자유 텍스트로 나열한다 — 실키로 직접
+// 호출해 확인한 구조다(공식 문서에 필드별 의미가 없어 값을 보고 알아냈다).
+// 그래서 목록→관서별 최신 항목 추리기→그 항목의 통보문 조회, 이렇게 두 단계로 호출한다.
+const KMA_ENDPOINT_LIST = "https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnList";
+const KMA_ENDPOINT_MSG  = "https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnMsg";
 const CACHE_SECONDS = 600; // 10분 — 공공데이터포털 하루 호출 한도(기본 1,000회/키)를 아낀다
 
 // 스팟 표. id 는 프론트(public/index.html 의 SPOTS)와 반드시 같아야 한다 — 그쪽은
@@ -28,24 +38,44 @@ const CACHE_SECONDS = 600; // 10분 — 공공데이터포털 하루 호출 한�
 //   sea     : 앞바다 좌표 (해상 수집용 — 해변 좌표를 그대로 쓰면 파랑 모델이
 //             육지로 판정해 null 만 돌려준다)
 //
-// zoneName 은 잠정치다. TODO 실키 연동 전 반드시 검증할 것: 공공데이터포털의
-// 공식 코드표("기상청_기상특보구역정보", 데이터셋 15043573)를 인증키로 내려받아
-// 실제 특보 응답의 지역명 표기와 일치하는지, 해변이 그 구역 경계 안에 있는지
-// 대조 확인해야 한다. 지금은 인증키 없이 그 코드표를 열람할 수 없다.
+// zoneName 전부 공식 코드표로 확인 완료(기상청 오픈API 활용가이드 첨부
+// "특보구역코드안내.xlsx", 2026-09-09). "동해중부앞바다"(S1151000)·
+// "동해남부앞바다"(S1131000)·"남해동부앞바다"(S1311000)·"남해서부앞바다"(S1321000)·
+// "서해중부앞바다"(S1251000) 모두 그 표에 그대로 있는 정식 구역명이다(동해남부·
+// 남해동부는 실제 활성 특보 문구에도 등장하는 걸 추가로 확인했다).
+//
+// 표를 보면 이 "OOO앞바다" 구역들 자체가 다시 더 잘게 나뉜다 — 예를 들어
+// 동해중부앞바다 밑에 강원북부·중부·남부앞바다가, 동해남부앞바다 밑에
+// 울산·경북남부·경북북부앞바다가 있다. 그런데 이 6개 스팟처럼 서로 가까운
+// 해변들의 정확한 하위 구역 경계(예: 강원 중부/남부를 정확히 어디서 가르는지)를
+// 확인할 공식 출처를 못 찾아서, 하위 구역까지는 안 내려가고 상위 "OOO앞바다"
+// 단위로만 매핑했다 — 실제로 하위 구역 하나에만 특보가 떠도 상위 구역
+// 전체(=이 스팟들 전부)에 특보로 표시되니, 놓치는 대신 넓게 잡는 셈이다
+// (안전 기능이라 과소보다 과다가 낫다는 판단).
+//
+// 제주만 다르게, 하위 구역(북/남/동/서앞바다) 단위로 직접 매핑했다 — 날씨누리
+// 제주지방기상청 안내에 "제주시 관할 해역 중 구좌읍·우도면·한림읍·한경면
+// 제외"가 "제주도북부앞바다"라고 명시돼 있어 경계를 확인할 수 있었기
+// 때문이다. 이호(제주시 도심, 제외 지역 아님)→북부, 월정리(구좌읍)→동부,
+// 중문(서귀포)→남부. 북부의 경계는 그 문서로 확인했지만 남부/동부/서부
+// 경계 자체는 방위상 추론이다. parentZoneName 을 같이 둬서, 기상청이
+// (하위 대신) "제주도앞바다"라고 통째로 발표하는 경우도 fetchAdvisoryFromKMA
+// 에서 그 상위 구역명으로도 매칭한다 — 안 두면 그런 통째 발표를 놓친다.
+//   출처: https://www.kma.go.kr/jeju/html/info/business02...(해상국지예보구역)
 const SPOTS = {
-  sampo:     { zoneName: "동해중부앞바다", lat: 38.2650, lon: 128.5620, sea: [38.2650, 128.5950] },
-  hajodae:   { zoneName: "동해중부앞바다", lat: 38.0480, lon: 128.6960, sea: [38.0480, 128.7300] },
-  jukdo:     { zoneName: "동해중부앞바다", lat: 38.0158, lon: 128.7186, sea: [38.0158, 128.7500] },
-  ingu:      { zoneName: "동해중부앞바다", lat: 37.9930, lon: 128.7290, sea: [37.9930, 128.7600] },
-  gyeongpo:  { zoneName: "동해중부앞바다", lat: 37.8010, lon: 128.9080, sea: [37.8010, 128.9400] },
-  geumjin:   { zoneName: "동해중부앞바다", lat: 37.6360, lon: 129.0460, sea: [37.6360, 129.0750] },
-  yonghan:   { zoneName: "동해남부앞바다", lat: 36.1170, lon: 129.4090, sea: [36.1170, 129.4400] },
-  songjeong: { zoneName: "남해동부앞바다", lat: 35.1786, lon: 129.1997, sea: [35.1640, 129.2130] },
-  dadaepo:   { zoneName: "남해서부앞바다", lat: 35.0430, lon: 128.9670, sea: [35.0250, 128.9670] },
-  jungmun:   { zoneName: "제주도앞바다",   lat: 33.2447, lon: 126.4106, sea: [33.2250, 126.4106] },
-  iho:       { zoneName: "제주도앞바다",   lat: 33.4990, lon: 126.4530, sea: [33.5200, 126.4530] },
-  woljeong:  { zoneName: "제주도앞바다",   lat: 33.5560, lon: 126.7960, sea: [33.5750, 126.7960] },
-  malli:     { zoneName: "서해중부앞바다", lat: 36.7889, lon: 126.1379, sea: [36.7889, 126.1050] },
+  sampo:     { zoneName: "동해중부앞바다",   lat: 38.2650, lon: 128.5620, sea: [38.2650, 128.5950] },
+  hajodae:   { zoneName: "동해중부앞바다",   lat: 38.0480, lon: 128.6960, sea: [38.0480, 128.7300] },
+  jukdo:     { zoneName: "동해중부앞바다",   lat: 38.0158, lon: 128.7186, sea: [38.0158, 128.7500] },
+  ingu:      { zoneName: "동해중부앞바다",   lat: 37.9930, lon: 128.7290, sea: [37.9930, 128.7600] },
+  gyeongpo:  { zoneName: "동해중부앞바다",   lat: 37.8010, lon: 128.9080, sea: [37.8010, 128.9400] },
+  geumjin:   { zoneName: "동해중부앞바다",   lat: 37.6360, lon: 129.0460, sea: [37.6360, 129.0750] },
+  yonghan:   { zoneName: "동해남부앞바다",   lat: 36.1170, lon: 129.4090, sea: [36.1170, 129.4400] },
+  songjeong: { zoneName: "남해동부앞바다",   lat: 35.1786, lon: 129.1997, sea: [35.1640, 129.2130] },
+  dadaepo:   { zoneName: "남해서부앞바다",   lat: 35.0430, lon: 128.9670, sea: [35.0250, 128.9670] },
+  jungmun:   { zoneName: "제주도남부앞바다", parentZoneName: "제주도앞바다", lat: 33.2447, lon: 126.4106, sea: [33.2250, 126.4106] },
+  iho:       { zoneName: "제주도북부앞바다", parentZoneName: "제주도앞바다", lat: 33.4990, lon: 126.4530, sea: [33.5200, 126.4530] },
+  woljeong:  { zoneName: "제주도동부앞바다", parentZoneName: "제주도앞바다", lat: 33.5560, lon: 126.7960, sea: [33.5750, 126.7960] },
+  malli:     { zoneName: "서해중부앞바다",   lat: 36.7889, lon: 126.1379, sea: [36.7889, 126.1050] },
 };
 const SPOT_IDS = Object.keys(SPOTS); // 파도 제보의 스팟 검증에도 그대로 재사용
 const ZONE_MAP = SPOTS;              // 풍랑특보 매핑은 같은 표를 본다
@@ -932,39 +962,85 @@ async function handleAdvisory(request, env, ctx){
   }
 }
 
-// TODO 실키 연동 시 이 함수 내부만 고치면 된다 — handleAdvisory 의 캐싱/에러 처리 골격은
-// 그대로 재사용된다. 아래 파싱 로직은 data.go.kr 공개 문서 기준의 설계이고, 실제 응답
-// 필드명(발표구분 코드, 특보종류 표기 등)은 승인된 키로 한 번 호출해 확인 후 확정해야 한다.
+// 공공데이터포털이 발급하는 서비스키는 이미 URL 인코딩된 형태(%2B, %2F 등 포함)다.
+// URLSearchParams 는 값을 다시 인코딩하므로, 그대로 넣으면 이중 인코딩되어
+// "SERVICE_KEY_IS_NOT_REGISTERED_ERROR" 가 난다 — 실키로 직접 확인한 버그.
+// 매 호출마다 디코딩해서 넘기면 정확히 한 번만 인코딩된다.
+async function kmaGet(endpoint, serviceKey, params){
+  // .trim() 은 방어적으로 넣었다 — Windows 에서 wrangler secret put 에 값을 stdin 으로
+  // 넣는 여러 방법(파이프, cmd.exe 경유 등)을 다 시도했는데 매번 저장된 시크릿
+  // 길이가 원본보다 1글자 길었다(실측: 98자여야 할 키가 99자로 저장됨). 어느
+  // 단계에서 개행이 섞여 들어가는지 특정하지 못해, 소비하는 쪽에서 trim 으로
+  // 방어했다 — 시크릿 값 앞뒤 공백은 어차피 유효한 값일 수 없으므로 부작용이 없다.
+  const qs = new URLSearchParams({ serviceKey: decodeURIComponent(serviceKey.trim()), dataType: "JSON", ...params });
+  const res = await fetch(`${endpoint}?${qs}`);
+  if (!res.ok){
+    const body = await res.text().catch(() => "");
+    throw new Error(`KMA API ${endpoint} ${res.status}: ${body.slice(0, 300)}`);
+  }
+  return res.json();
+}
+
+// tmFc(예: 202609090900, KST 로컬시각)를 오프셋 있는 ISO 문자열로 바꾼다.
+function kmaTimeToISO(tmFc){
+  const s = String(tmFc);
+  return `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}T${s.slice(8,10)}:${s.slice(10,12)}:00+09:00`;
+}
+
 async function fetchAdvisoryFromKMA(serviceKey){
-  const qs = new URLSearchParams({
-    serviceKey,
-    pageNo: "1",
-    numOfRows: "100",
-    dataType: "JSON",
-  });
+  const listData = await kmaGet(KMA_ENDPOINT_LIST, serviceKey, { pageNo: "1", numOfRows: "100" });
+  const items = listData?.response?.body?.items?.item ?? [];
 
-  const res = await fetch(`${KMA_ENDPOINT}?${qs}`);
-  if (!res.ok) throw new Error(`KMA API ${res.status}`);
-  const data = await res.json();
+  // 관서(stnId)가 여러 시각의 발표 이력을 각각 한 행씩 들고 올 수 있다(예: 같은 관서가
+  // 05시·09시에 두 번 발표) — 관서별로 가장 최근 것만 통보문을 조회한다.
+  const latestByStn = new Map();
+  for (const it of items){
+    const prev = latestByStn.get(it.stnId);
+    if (!prev || it.tmFc > prev.tmFc) latestByStn.set(it.stnId, it);
+  }
 
-  // TODO: 실제 응답 구조 확인 후 파싱 교체. 아래는 자리표시자 — 지금은 활성 특보가
-  // 없다고 가정해 모든 스팟을 "평소(0)"로 채운다. 실키를 받으면 이 블록만 채우면 된다.
-  //
-  // const items = data?.response?.body?.items?.item ?? [];
-  // const activeByZone = new Map();
-  // for (const it of items) {
-  //   const isWave = it.warnVar === "풍랑";                       // 필드명 확정 필요
-  //   const isActive = ["1", "3", "5"].includes(String(it.command)); // 발표/연장/변경
-  //   if (!isWave || !isActive) continue;
-  //   const level = it.warnStress === "경보" ? 2 : 1;              // 필드명 확정 필요
-  //   activeByZone.set(it.areaName, { level, issuedAt: it.tmFc });
-  // }
-  const activeByZone = new Map();
-  void data;
+  // spotId -> { level, issuedAt }. 매칭 안 된 스팟은 아래에서 level 0(평소)으로 채운다.
+  const hitBySpot = new Map();
+
+  for (const it of latestByStn.values()){
+    let msgData;
+    try {
+      msgData = await kmaGet(KMA_ENDPOINT_MSG, serviceKey, { stnId: it.stnId, tmFc: String(it.tmFc) });
+    } catch (_){
+      continue; // 관서 하나의 통보문 조회가 실패해도 나머지 관서 결과는 그대로 반영한다
+    }
+    const t6 = msgData?.response?.body?.items?.item?.[0]?.t6 || "";
+
+    for (const line of t6.split(/\r?\n/)){
+      const m = line.match(/^o\s*(풍랑주의보|풍랑경보)\s*:\s*(.+)$/);
+      if (!m) continue;
+      const level = m[1] === "풍랑경보" ? 2 : 1;
+      const zoneText = m[2];
+
+      for (const [spotId, zone] of Object.entries(ZONE_MAP)){
+        // 스팟의 세부 구역명(zoneName)뿐 아니라 상위 구역명(parentZoneName, 제주만
+        // 있음)으로도 확인한다 — 기상청이 하위 구역 대신 상위 구역을 통째로
+        // 발표하는 경우(예: "제주도북부앞바다" 대신 "제주도앞바다") 세부명만 보면
+        // 놓치기 때문이다.
+        const namesToCheck = [zone.zoneName, zone.parentZoneName].filter(Boolean);
+        const isNearshore = namesToCheck.some(name => {
+          const prefix = name.replace(/앞바다$/, "");
+          // "앞바다"(근해) 또는 "전해상"(근해+원해 통합 발표) 표기만 서핑 포인트에 적용한다.
+          // "먼바다"(원해)만 언급된 구역(예: "동해남부남쪽안쪽먼바다")은 근해와 무관해 제외한다 —
+          // 실제로 이 둘이 같은 통보문 안에서 서로 다른 단계로 같이 등장하는 걸 확인했다
+          // (동해남부: 먼바다는 경보, 앞바다는 주의보인 경우가 실제로 있었다).
+          return zoneText.includes(prefix + "앞바다") || zoneText.includes(prefix + "전해상");
+        });
+        if (!isNearshore) continue;
+        const prevLevel = hitBySpot.get(spotId)?.level ?? 0;
+        if (level > prevLevel) hitBySpot.set(spotId, { level, issuedAt: kmaTimeToISO(it.tmFc) });
+      }
+    }
+  }
 
   const spots = {};
   for (const [spotId, zone] of Object.entries(ZONE_MAP)){
-    const hit = activeByZone.get(zone.zoneName);
+    const hit = hitBySpot.get(spotId);
     spots[spotId] = {
       zone: zone.zoneName,
       level: hit ? hit.level : 0,

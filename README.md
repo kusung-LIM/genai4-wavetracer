@@ -107,7 +107,22 @@ Activity)로 한 번 더 감싸야 하는데, 개발자 계정($25)·심사·별
 ## 구조
 
 ```
-public/index.html      앱 전체 — 4개 화면 + 챗봇 + 라우터 (HTML + CSS + JS, 의존성 0)
+public/index.html      마크업만(104줄) — <head> + 4개 화면의 뼈대 + 챗봇 DOM
+public/css/app.css     스타일 전부
+public/js/main.js      진입점. 나머지는 import 그래프를 따라 브라우저가 가져온다
+  ├ util.js            $, esc, 날짜/숫자 도구 — 다른 모듈을 import 하지 않는다
+  ├ spots.js           서핑 포인트 13곳 데이터 + 이름 조회
+  ├ levels.js          비기너/롱보더/숏보더 점수 곡선 정의(데이터)
+  ├ state.js           현재 스팟·날짜·레벨, URL 동기화, 렌더 토큰
+  ├ score.js           위 곡선을 적용한 실제 채점 — 점수 로직은 여기 한 곳뿐
+  ├ api.js             Open-Meteo 직접 호출 + /api/* 호출을 모두 모아둔 곳
+  ├ advisory.js        풍랑특보 배너
+  ├ forecast.js        파도예보 화면(히어로·차트·표·레벨 선택기)
+  ├ home.js            홈(전국 지도 + 오늘의 파도 + 최근 제보)
+  ├ reports.js         파도제보(작성 폼 + 목록)
+  ├ sessions.js        내 기록(GPX/TCX 파싱 + 트랙 지도)
+  ├ chat.js            AI 챗봇
+  └ router.js          History API 라우팅
 public/manifest.webmanifest  PWA 매니페스트(이름·아이콘·테마색)
 public/sw.js            PWA 설치 요건용 최소 서비스워커(앱 셸만 캐싱, API는 항상 네트워크)
 public/icons/           PWA·홈 화면 아이콘(192/512/apple-touch-icon)
@@ -119,10 +134,19 @@ wrangler.jsonc         Cloudflare 배포 설정
 .claude/launch.json    로컬 dev 서버 실행 설정
 ```
 
-화면 3개와 챗봇이 전부 파일 하나(`public/index.html`)에 들어 있다 — 번들러도
-프레임워크도 없고 빌드 스텝도 없다. `src/worker.js` 는 서버가 꼭 필요한 것들만
-맡는다: 인증키를 숨겨야 하는 풍랑특보 프록시, 저장소가 필요한 제보 게시판,
-D1과 Workers AI가 필요한 챗봇, Cron 수집.
+**프론트엔드는 네이티브 ES 모듈로 나눠 두었다 — 빌드 스텝은 여전히 없다.**
+`index.html` 이 `<script type="module" src="/js/main.js">` 하나만 부르고, 나머지는
+브라우저가 import 그래프를 따라 가져온다. 번들러·트랜스파일러가 없으므로 파일을
+고치면 새로고침이 곧 배포 확인이고, 툴체인이 낡아서 깨질 일도 없다.
+
+의존 방향은 위 목록의 **위에서 아래로만** 흐른다(util ← spots ← levels ← state ←
+score ← api ← 화면들). 유일한 예외는 화면 모듈 ↔ `router.js` 인데(홈 지도 마커가
+`navigate()` 를 부르고, 라우터는 홈을 그린다), 서로를 함수 안에서만 부르므로
+순환이어도 안전하다. `util.js` 가 아무것도 import 하지 않는다는 규칙이 이 구조의
+바닥을 잡아준다.
+
+`src/worker.js` 는 서버가 꼭 필요한 것들만 맡는다: 인증키를 숨겨야 하는 풍랑특보
+프록시, 저장소가 필요한 제보 게시판, D1과 Workers AI가 필요한 챗봇, Cron 수집.
 
 `wrangler.jsonc` 의 `assets.run_worker_first` 덕분에 `/api/*` 이외의 모든
 요청(HTML, 이미지 등)은 이 워커를 거치지 않고 바로 서빙된다 — 정적 에셋의

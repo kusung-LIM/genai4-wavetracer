@@ -48,7 +48,11 @@ const GRADES = [
   [27, "아쉬움", "var(--r-poor)"],
   [-1, "잔잔함", "var(--r-flat)"]
 ];
-const grade = s => GRADES.find(g => (isNum(s) ? s : -1) > g[0]);
+/** 점수 → 등급 행 [기준점, 라벨, 색]. 점수가 없으면(파고 결측) 가장 낮은 등급으로
+    떨어진다. 마지막 기준점(-1)은 "-1 > -1" 이 거짓이라 find 가 undefined 를 주는데,
+    호출부 중에는 g[1]·g[2] 를 가드 없이 바로 쓰는 곳이 있어(차트 컨디션 띠, 홈 지도
+    마커, 세션 상세 패널) 그러면 화면이 통째로 안 뜬다 — 항상 행을 돌려준다. */
+const grade = s => GRADES.find(g => (isNum(s) ? s : -1) > g[0]) ?? GRADES[GRADES.length - 1];
 
 function windLabel(off){
   if (off >  0.42) return ["오프쇼어", "b-off"];

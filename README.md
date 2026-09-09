@@ -46,6 +46,37 @@ npx wrangler d1 execute wavetracer --local  --file=./schema.sql
 npx wrangler d1 execute wavetracer --remote --file=./schema.sql   # 운영, 최초 1회
 ```
 
+## 테스트
+
+```bash
+npm test               # node --test, 의존성 0
+```
+
+Node 내장 테스트 러너만 쓴다 — 프레임워크도 설정 파일도 없다. 네트워크·DOM 없이
+돌 수 있는 **순수 함수만** 대상으로 하고, 그중에서도 "틀려도 에러가 안 나서 조용히
+잘못된 값이 나오는" 곳을 우선했다.
+
+| 파일 | 대상 |
+|---|---|
+| `test/worker.test.mjs` | 하버사인 거리, GPS 스팟 매칭, KST 날짜 변환, 풍랑특보 `t6` 파싱 |
+| `test/score.test.mjs` | 보간 곡선, 오프쇼어 판정, 레벨별 채점, 등급, 하루 요약 |
+| `test/forecast.test.mjs` | 결측(파고 null)이 섞인 하루치로 차트·표 렌더 |
+| `test/spots.test.mjs` | 스팟 표 불변식(좌표 범위, 구역명 형식, 제주 상위 구역) |
+
+**풍랑특보 파싱 픽스처는 만들어낸 문자열이 아니라 실제 통보문 본문이다.** 이 파싱은
+이 프로젝트에서 가장 여러 번 틀렸던 부분(먼바다/앞바다 혼동, `전해상` 표기 누락,
+제주 상위 구역 통째 발표)이라, 그때 실키로 확인한 응답을 그대로 픽스처로 박아뒀다.
+네트워크를 타는 부분은 `fetchAdvisoryFromKMA` 에 남기고, 파싱만
+`advisorySpotsFromBulletins` 로 분리해 테스트한다.
+
+프론트 모듈은 브라우저용이라 `util.js` 가 로드 시점에 `$("#app")` 을 잡는다. jsdom
+같은 의존성을 들이는 대신 테스트 파일 상단에서 `document` 를 최소한만 스텁하고,
+정적 import 보다 먼저 실행되도록 동적 `await import()` 를 쓴다.
+
+**아직 테스트에 없는 것**: GPX/TCX 파서. 브라우저 `DOMParser` 에 의존해서 Node 에서
+돌리려면 XML 파서 의존성이 필요하다. 지금은 실제 삼성헬스 GPX 파일로 브라우저에서
+확인하는 방식을 유지한다.
+
 ## 페이지 구성
 
 History API 기반 클라이언트 라우팅이다. 별도 서버 설정은 필요 없다 —

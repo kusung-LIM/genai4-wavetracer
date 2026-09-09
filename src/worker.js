@@ -952,31 +952,20 @@ function kmaTimeToISO(tmFc){
   return `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}T${s.slice(8,10)}:${s.slice(10,12)}:00+09:00`;
 }
 
-async function fetchAdvisoryFromKMA(serviceKey){
-  const listData = await kmaGet(KMA_ENDPOINT_LIST, serviceKey, { pageNo: "1", numOfRows: "100" });
-  const items = listData?.response?.body?.items?.item ?? [];
-
-  // 관서(stnId)가 여러 시각의 발표 이력을 각각 한 행씩 들고 올 수 있다(예: 같은 관서가
-  // 05시·09시에 두 번 발표) — 관서별로 가장 최근 것만 통보문을 조회한다.
-  const latestByStn = new Map();
-  for (const it of items){
-    const prev = latestByStn.get(it.stnId);
-    if (!prev || it.tmFc > prev.tmFc) latestByStn.set(it.stnId, it);
-  }
-
+/** 통보문 본문(t6) 목록 → 스팟별 풍랑특보 단계.
+ *
+ *  네트워크와 분리한 순수 함수다 — 이 파싱이 이 프로젝트에서 가장 여러 번 틀렸던
+ *  부분이라(먼바다/앞바다 혼동, 전해상 표기 누락, 제주 상위 구역 발표) 실제 통보문
+ *  문구를 픽스처로 박아 test/worker.test.mjs 에서 직접 검증한다.
+ *
+ *  bulletins: [{ t6, tmFc }] — 관서별 최신 통보문
+ */
+function advisorySpotsFromBulletins(bulletins){
   // spotId -> { level, issuedAt }. 매칭 안 된 스팟은 아래에서 level 0(평소)으로 채운다.
   const hitBySpot = new Map();
 
-  for (const it of latestByStn.values()){
-    let msgData;
-    try {
-      msgData = await kmaGet(KMA_ENDPOINT_MSG, serviceKey, { stnId: it.stnId, tmFc: String(it.tmFc) });
-    } catch (_){
-      continue; // 관서 하나의 통보문 조회가 실패해도 나머지 관서 결과는 그대로 반영한다
-    }
-    const t6 = msgData?.response?.body?.items?.item?.[0]?.t6 || "";
-
-    for (const line of t6.split(/\r?\n/)){
+  for (const { t6, tmFc } of bulletins){
+    for (const line of String(t6 || "").split(/\r?\n/)){
       const m = line.match(/^o\s*(풍랑주의보|풍랑경보)\s*:\s*(.+)$/);
       if (!m) continue;
       const level = m[1] === "풍랑경보" ? 2 : 1;
@@ -998,7 +987,7 @@ async function fetchAdvisoryFromKMA(serviceKey){
         });
         if (!isNearshore) continue;
         const prevLevel = hitBySpot.get(spotId)?.level ?? 0;
-        if (level > prevLevel) hitBySpot.set(spotId, { level, issuedAt: kmaTimeToISO(it.tmFc) });
+        if (level > prevLevel) hitBySpot.set(spotId, { level, issuedAt: kmaTimeToISO(tmFc) });
       }
     }
   }
@@ -1014,3 +1003,34 @@ async function fetchAdvisoryFromKMA(serviceKey){
   }
   return spots;
 }
+
+async function fetchAdvisoryFromKMA(serviceKey){
+  const listData = await kmaGet(KMA_ENDPOINT_LIST, serviceKey, { pageNo: "1", numOfRows: "100" });
+  const items = listData?.response?.body?.items?.item ?? [];
+
+  // 관서(stnId)가 여러 시각의 발표 이력을 각각 한 행씩 들고 올 수 있다(예: 같은 관서가
+  // 05시·09시에 두 번 발표) — 관서별로 가장 최근 것만 통보문을 조회한다.
+  const latestByStn = new Map();
+  for (const it of items){
+    const prev = latestByStn.get(it.stnId);
+    if (!prev || it.tmFc > prev.tmFc) latestByStn.set(it.stnId, it);
+  }
+
+  const bulletins = [];
+  for (const it of latestByStn.values()){
+    let msgData;
+    try {
+      msgData = await kmaGet(KMA_ENDPOINT_MSG, serviceKey, { stnId: it.stnId, tmFc: String(it.tmFc) });
+    } catch (_){
+      continue; // 관서 하나의 통보문 조회가 실패해도 나머지 관서 결과는 그대로 반영한다
+    }
+    bulletins.push({ t6: msgData?.response?.body?.items?.item?.[0]?.t6 || "", tmFc: it.tmFc });
+  }
+
+  return advisorySpotsFromBulletins(bulletins);
+}
+
+/* 아래 named export 는 테스트(test/*.test.mjs)에서만 쓴다. Cloudflare 는 default
+   export 의 fetch/scheduled 만 보므로 런타임 동작에는 영향이 없다. 순수 함수만
+   내보낸다 — 네트워크·D1 을 타는 함수는 여기 두지 않는다. */
+export { haversineM, toKSTDateHour, matchSpot, kmaTimeToISO, advisorySpotsFromBulletins };

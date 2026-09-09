@@ -3,10 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "description": "국내 서핑 포인트 파도 예보 — 원페이지 서비스",
+  "type": "module",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "tail": "wrangler tail"
+    "tail": "wrangler tail",
+    "test": "node --test"
   },
   "devDependencies": {
     "wrangler": "^4.42.0"
